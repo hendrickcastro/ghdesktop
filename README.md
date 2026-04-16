@@ -1,8 +1,47 @@
-# [GitHub Desktop](https://desktop.github.com)
+# GitHub Desktop KNWR
 
-[GitHub Desktop](https://desktop.github.com/) is an open-source [Electron](https://www.electronjs.org/)-based
-GitHub app. It is written in [TypeScript](https://www.typescriptlang.org) and
-uses [React](https://reactjs.org/).
+Custom fork of [GitHub Desktop](https://desktop.github.com/) with enhanced repository organization features. Built on the open-source [Electron](https://www.electronjs.org/)-based GitHub app, written in [TypeScript](https://www.typescriptlang.org) and [React](https://reactjs.org/).
+
+## KNWR Customizations
+
+### Favorites
+- Mark any repository as a favorite via right-click context menu
+- Favorites appear in a dedicated **"Favorites"** section at the top of the sidebar
+- Gold star icon indicator on favorited repositories
+- Favorites also remain visible in their normal group (dotcom/enterprise/other)
+
+### Custom Folders with Deep Nesting
+- Create named folders to organize repositories into logical groups
+- **Unlimited subfolder depth** — nest folders as deep as you need (e.g. `Work / Frontend / React`)
+- Subfolders appear at the top inside their parent, followed by repositories
+- Repositories inside folders have proportional left-padding based on depth
+- Folder repos appear **only** in their folder group (moved, not duplicated)
+- Empty folders are always visible in the sidebar
+
+### Folder Management
+- **Create folders** via the "Move to Folder" submenu in the repository context menu
+- **Create subfolders** via right-click on a folder header
+- **Rename folders** via right-click on a folder header
+- **Delete folders** via right-click on a folder header (repos return to their normal group)
+- **Move repos between folders** via the "Move to Folder" submenu
+- **Remove from folder** to return a repo to its default group
+
+### Collapsible Groups
+- Folder and Favorites sections can be collapsed/expanded by clicking the header
+- Collapse state **persists across restarts** via localStorage
+- Collapsing a parent folder hides all subfolders and their contents
+- Animated chevron icon indicates expand/collapse state
+
+### Multi-Select Add Repository
+- When adding local repositories, select **multiple folders at once** using Ctrl+Click or Shift+Click
+- Shows a list of selected paths before adding
+- Button updates to show count: "Add N repositories"
+
+### Other Changes
+- **Removed "Recent" section** from the sidebar — repos are organized by favorites, folders, and source (dotcom/enterprise/other)
+- **Custom app identity**: `GitHub Desktop KNWR` with unique bundleID (`com.knwr.GitHubDesktop`) to run alongside the official app
+
+---
 
 <picture>
   <source
