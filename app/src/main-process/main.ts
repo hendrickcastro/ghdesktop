@@ -686,6 +686,11 @@ app.on('ready', () => {
     async (_, options) => mainWindow?.showOpenDialog(options) ?? null
   )
 
+  ipcMain.handle(
+    'show-open-dialog-multiple',
+    async (_, options) => mainWindow?.showOpenDialogMultiple(options) ?? null
+  )
+
   /**
    * An event sent by the renderer asking obtain whether the window is focused
    */

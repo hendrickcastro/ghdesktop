@@ -25,6 +25,7 @@ import {
 } from '../api'
 import { TypedBaseStore } from './base-store'
 import { WorkflowPreferences } from '../../models/workflow-preferences'
+import { IRepositoryFolder } from '../../models/repository-folder'
 import { clearTagsToPush } from './helpers/tags-to-push-storage'
 import { IMatchedGitHubRepository } from '../repository-matching'
 import { shallowEquals } from '../equality'
@@ -152,7 +153,9 @@ export class RepositoriesStore extends TypedBaseStore<
       repo.missing,
       repo.alias,
       repo.workflowPreferences,
-      repo.isTutorialRepository
+      repo.isTutorialRepository,
+      repo.isFavorite ?? false,
+      repo.folderId ?? null
     )
   }
 
@@ -287,7 +290,9 @@ export class RepositoriesStore extends TypedBaseStore<
       missing,
       repository.alias,
       repository.workflowPreferences,
-      repository.isTutorialRepository
+      repository.isTutorialRepository,
+      repository.isFavorite,
+      repository.folderId
     )
   }
 
@@ -337,7 +342,9 @@ export class RepositoriesStore extends TypedBaseStore<
       false,
       repository.alias,
       repository.workflowPreferences,
-      repository.isTutorialRepository
+      repository.isTutorialRepository,
+      repository.isFavorite,
+      repository.folderId
     )
   }
 
@@ -483,7 +490,9 @@ export class RepositoriesStore extends TypedBaseStore<
       repo.missing,
       repo.alias,
       repo.workflowPreferences,
-      repo.isTutorialRepository
+      repo.isTutorialRepository,
+      repo.isFavorite,
+      repo.folderId
     )
 
     assertIsRepositoryWithGitHubRepository(updatedRepo)
@@ -693,6 +702,79 @@ export class RepositoriesStore extends TypedBaseStore<
     }
 
     return branchProtectionsFound
+  }
+
+  /** Update the repository's favorite status. */
+  public async updateRepositoryFavorite(
+    repository: Repository,
+    isFavorite: boolean
+  ): Promise<void> {
+    await this.db.repositories.update(repository.id, { isFavorite })
+    this.emitUpdatedRepositories()
+  }
+
+  /** Update the repository's folder assignment. */
+  public async updateRepositoryFolder(
+    repository: Repository,
+    folderId: number | null
+  ): Promise<void> {
+    await this.db.repositories.update(repository.id, { folderId })
+    this.emitUpdatedRepositories()
+  }
+
+  /** Get all repository folders. */
+  public async getAllFolders(): Promise<ReadonlyArray<IRepositoryFolder>> {
+    const dbFolders = await this.db.repositoryFolders.toArray()
+    return dbFolders.map(f => ({
+      id: forceUnwrap('Missing folder id', f.id),
+      name: f.name,
+      parentId: f.parentId ?? null,
+    }))
+  }
+
+  /** Create a new repository folder. */
+  public async createFolder(
+    name: string,
+    parentId: number | null = null
+  ): Promise<IRepositoryFolder> {
+    const id = await this.db.repositoryFolders.add({ name, parentId })
+    return { id, name, parentId }
+  }
+
+  /** Rename an existing repository folder. */
+  public async renameFolder(id: number, name: string): Promise<void> {
+    await this.db.repositoryFolders.update(id, { name })
+  }
+
+  /** Delete a repository folder, its subfolders, and unassign all their repositories. */
+  public async deleteFolder(id: number): Promise<void> {
+    const allFolders = await this.db.repositoryFolders.toArray()
+    const idsToDelete = this.getDescendantFolderIds(id, allFolders)
+    idsToDelete.push(id)
+
+    const repos = await this.db.repositories.toArray()
+    for (const repo of repos) {
+      if (repo.folderId !== undefined && repo.folderId !== null && idsToDelete.includes(repo.folderId)) {
+        await this.db.repositories.update(repo.id!, { folderId: null })
+      }
+    }
+    await this.db.repositoryFolders.bulkDelete(idsToDelete)
+    this.emitUpdatedRepositories()
+  }
+
+  private getDescendantFolderIds(
+    parentId: number,
+    allFolders: ReadonlyArray<{ id?: number; parentId?: number | null }>
+  ): number[] {
+    const children = allFolders.filter(f => f.parentId === parentId)
+    const ids: number[] = []
+    for (const child of children) {
+      if (child.id !== undefined) {
+        ids.push(child.id)
+        ids.push(...this.getDescendantFolderIds(child.id, allFolders))
+      }
+    }
+    return ids
   }
 
   /**

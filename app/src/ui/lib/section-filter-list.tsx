@@ -75,6 +75,9 @@ interface ISectionFilterListProps<T extends IFilterListItem, GroupIdentifier> {
     identifier: GroupIdentifier
   ) => JSX.Element | null
 
+  /** Return false to suppress the header row for a specific group. */
+  readonly shouldRenderGroupHeader?: (identifier: GroupIdentifier) => boolean
+
   /** Called to render content before/above the filter and list. */
   readonly renderPreList?: () => JSX.Element | null
 
@@ -168,6 +171,12 @@ interface ISectionFilterListProps<T extends IFilterListItem, GroupIdentifier> {
 
   /** If true, we do not render the filter. */
   readonly hideFilterRow?: boolean
+
+  /**
+   * Called to determine whether a group is collapsed. When a group is
+   * collapsed only the group header is shown, items are hidden.
+   */
+  readonly isGroupCollapsed?: (identifier: GroupIdentifier) => boolean
 
   /**
    * A handler called whenever a context menu event is received on the
@@ -711,25 +720,46 @@ function createStateUpdate<T extends IFilterListItem, GroupIdentifier>(
           item,
         }))
 
-    if (!items.length) {
+    // Skip empty groups when filtering, but keep them visible otherwise
+    // so that empty folder groups still show their header in the tree.
+    if (!items.length && filter.length > 0) {
+      continue
+    }
+
+    // If a group has no items and no header renderer, skip it entirely
+    if (!items.length && !props.renderGroupHeader) {
       continue
     }
 
     groupIndices.push(idx)
 
-    if (props.renderGroupHeader) {
+    const showHeader =
+      props.renderGroupHeader &&
+      (props.shouldRenderGroupHeader?.(group.identifier) ?? true)
+
+    if (showHeader) {
       groupRows.push({ kind: 'group', identifier: group.identifier })
     }
 
-    for (const { item, matches } of items) {
-      if (selectedItem && item.id === selectedItem.id) {
-        selectedRow = {
-          section,
-          row: groupRows.length,
-        }
-      }
+    const collapsed = props.isGroupCollapsed?.(group.identifier) ?? false
 
-      groupRows.push({ kind: 'item', item, matches })
+    if (!collapsed) {
+      for (const { item, matches } of items) {
+        if (selectedItem && item.id === selectedItem.id) {
+          selectedRow = {
+            section,
+            row: groupRows.length,
+          }
+        }
+
+        groupRows.push({ kind: 'item', item, matches })
+      }
+    }
+
+    // Skip completely empty sections (no header, no items)
+    if (groupRows.length === 0) {
+      groupIndices.pop()
+      continue
     }
 
     rows.push(groupRows)

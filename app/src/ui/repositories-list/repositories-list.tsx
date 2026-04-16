@@ -1,6 +1,6 @@
 import * as React from 'react'
 
-import { commitGrammar, RepositoryListItem } from './repository-list-item'
+import { RepositoryListItem } from './repository-list-item'
 import {
   groupRepositories,
   IRepositoryListItem,
@@ -26,13 +26,21 @@ import { generateRepositoryListContextMenu } from '../repositories-list/reposito
 import { SectionFilterList } from '../lib/section-filter-list'
 import { assertNever } from '../../lib/fatal-error'
 import { IAheadBehind } from '../../models/branch'
+import { IRepositoryFolder } from '../../models/repository-folder'
+import classNames from 'classnames'
+import { commitGrammar } from './repository-list-item'
+import {
+  getStringArray,
+  setStringArray,
+} from '../../lib/local-storage'
 
 const BlankSlateImage = encodePathAsUrl(__dirname, 'static/empty-no-repo.svg')
+const collapsedGroupsKey = 'collapsed-repo-groups'
 
 interface IRepositoriesListProps {
   readonly selectedRepository: Repositoryish | null
   readonly repositories: ReadonlyArray<Repositoryish>
-  readonly recentRepositories: ReadonlyArray<number>
+  readonly repositoryFolders: ReadonlyArray<IRepositoryFolder>
 
   /** A cache of the latest repository state values, keyed by the repository id */
   readonly localRepositoryStateLookup: ReadonlyMap<
@@ -79,6 +87,7 @@ interface IRepositoriesListProps {
 interface IRepositoriesListState {
   readonly newRepositoryMenuExpanded: boolean
   readonly selectedItem: IRepositoryListItem | null
+  readonly collapsedGroups: ReadonlySet<string>
 }
 
 const RowHeight = 29
@@ -121,14 +130,14 @@ export class RepositoriesList extends React.Component<
     (
       repositories: ReadonlyArray<Repositoryish> | null,
       localRepositoryStateLookup: ReadonlyMap<number, ILocalRepositoryState>,
-      recentRepositories: ReadonlyArray<number>
+      repositoryFolders: ReadonlyArray<IRepositoryFolder>
     ) =>
       repositories === null
         ? []
         : groupRepositories(
             repositories,
             localRepositoryStateLookup,
-            recentRepositories
+            repositoryFolders
           )
   )
 
@@ -149,7 +158,34 @@ export class RepositoriesList extends React.Component<
     this.state = {
       newRepositoryMenuExpanded: false,
       selectedItem: null,
+      collapsedGroups: new Set<string>(getStringArray(collapsedGroupsKey)),
     }
+  }
+
+  private getFolderDepth(repository: Repositoryish): number {
+    if (!(repository instanceof Repository) || repository.folderId === null) {
+      return 0
+    }
+    const folder = this.props.repositoryFolders.find(
+      f => f.id === repository.folderId
+    )
+    if (!folder) {
+      return 0
+    }
+    // Depth of the folder itself + 1 (repos indent one level deeper than their folder header)
+    let depth = 1
+    let current = folder
+    while (current.parentId !== null) {
+      depth++
+      const parent = this.props.repositoryFolders.find(
+        f => f.id === current.parentId
+      )
+      if (!parent) {
+        break
+      }
+      current = parent
+    }
+    return depth
   }
 
   private renderItem = (item: IRepositoryListItem, matches: IMatches) => {
@@ -162,6 +198,10 @@ export class RepositoriesList extends React.Component<
         matches={matches}
         aheadBehind={item.aheadBehind}
         changedFilesCount={item.changedFilesCount}
+        isFavorite={
+          repository instanceof Repository ? repository.isFavorite : false
+        }
+        folderDepth={this.getFolderDepth(repository)}
       />
     )
   }
@@ -241,21 +281,182 @@ export class RepositoriesList extends React.Component<
 
   private getGroupLabel(group: RepositoryListGroup) {
     const { kind } = group
-    if (kind === 'enterprise') {
+    if (kind === 'favorites') {
+      return 'Favorites'
+    } else if (kind === 'folder') {
+      return group.folderName
+    } else if (kind === 'enterprise') {
       return group.host
     } else if (kind === 'other') {
       return 'Other'
     } else if (kind === 'dotcom') {
       return group.owner.login
-    } else if (kind === 'recent') {
-      return 'Recent'
     } else {
       assertNever(kind, `Unknown repository group kind ${kind}`)
     }
   }
 
+  private isCollapsibleGroup(group: RepositoryListGroup): boolean {
+    if (group.kind === 'favorites') {
+      return true
+    }
+    if (group.kind === 'folder' && !group.reposOnly) {
+      return true
+    }
+    return false
+  }
+
+  private isGroupCollapsed = (group: RepositoryListGroup): boolean => {
+    // reposOnly groups collapse when their parent folder is collapsed
+    if (group.kind === 'folder' && group.reposOnly) {
+      const parentKey = `1:folder:${group.folderPath}`
+      if (this.state.collapsedGroups.has(parentKey)) {
+        return true
+      }
+    }
+
+    if (this.state.collapsedGroups.has(getGroupKey(group))) {
+      return true
+    }
+
+    // Cascade: if any ancestor folder is collapsed, this group is too
+    if (group.kind === 'folder') {
+      const folderPath = group.folderPath
+      for (const key of this.state.collapsedGroups) {
+        if (
+          key.startsWith('1:folder:') &&
+          folderPath.startsWith(key.slice('1:folder:'.length) + ' / ')
+        ) {
+          return true
+        }
+      }
+    }
+
+    return false
+  }
+
+  private onToggleGroupCollapse = (group: RepositoryListGroup) => {
+    const key = getGroupKey(group)
+    const collapsedGroups = new Set(this.state.collapsedGroups)
+    if (collapsedGroups.has(key)) {
+      collapsedGroups.delete(key)
+    } else {
+      collapsedGroups.add(key)
+    }
+    setStringArray(collapsedGroupsKey, [...collapsedGroups])
+    this.setState({ collapsedGroups })
+  }
+
+  private onFolderHeaderContextMenu = (
+    group: RepositoryListGroup,
+    event: React.MouseEvent
+  ) => {
+    if (group.kind !== 'folder') {
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+
+    const items: IMenuItem[] = [
+      {
+        label: __DARWIN__ ? 'Create Subfolder…' : 'Create subfolder…',
+        action: () => {
+          this.props.dispatcher.showPopup({
+            type: PopupType.CreateRepositoryFolder,
+            parentId: group.folderId,
+          })
+        },
+      },
+      {
+        label: __DARWIN__ ? 'Rename Folder…' : 'Rename folder…',
+        action: () => {
+          this.props.dispatcher.showPopup({
+            type: PopupType.RenameRepositoryFolder,
+            folderId: group.folderId,
+            currentName: group.folderName,
+          })
+        },
+      },
+      { type: 'separator' },
+      {
+        label: __DARWIN__ ? 'Delete Folder' : 'Delete folder',
+        action: () => {
+          this.props.dispatcher.deleteFolder(group.folderId)
+        },
+      },
+    ]
+
+    showContextualMenu(items)
+  }
+
+  private shouldRenderGroupHeader = (group: RepositoryListGroup): boolean => {
+    if (group.kind === 'folder' && group.reposOnly) {
+      return false
+    }
+    // Hide subfolder headers when any ancestor is collapsed
+    if (group.kind === 'folder' && group.depth > 0) {
+      const folderPath = group.folderPath
+      for (const key of this.state.collapsedGroups) {
+        if (
+          key.startsWith('1:folder:') &&
+          folderPath.startsWith(key.slice('1:folder:'.length) + ' / ')
+        ) {
+          return false
+        }
+      }
+    }
+    return true
+  }
+
   private renderGroupHeader = (group: RepositoryListGroup) => {
+    // reposOnly groups have no visible header
+    if (group.kind === 'folder' && group.reposOnly) {
+      return null
+    }
+
     const label = this.getGroupLabel(group)
+    const collapsible = this.isCollapsibleGroup(group)
+    const collapsed = this.isGroupCollapsed(group)
+    let icon: React.ReactNode = null
+    const depth = group.kind === 'folder' ? group.depth : 0
+
+    if (group.kind === 'favorites') {
+      icon = (
+        <Octicon
+          symbol={octicons.starFill}
+          className="group-header-icon favorites-icon"
+        />
+      )
+    } else if (group.kind === 'folder') {
+      icon = (
+        <Octicon
+          symbol={octicons.fileDirectoryFill}
+          className="group-header-icon folder-icon"
+        />
+      )
+    }
+
+    if (collapsible) {
+      const style = depth > 0 ? { paddingLeft: `${depth * 16}px` } : undefined
+      return (
+        <div
+          key={getGroupKey(group)}
+          className={classNames('filter-list-group-header', 'collapsible', {
+            collapsed,
+          })}
+          style={style}
+          onClick={() => this.onToggleGroupCollapse(group)}
+          onContextMenu={e => this.onFolderHeaderContextMenu(group, e)}
+        >
+          <Octicon
+            symbol={octicons.chevronRight}
+            className="collapse-chevron"
+          />
+          {icon}
+          {label}
+        </div>
+      )
+    }
 
     return (
       <TooltippedContent
@@ -265,6 +466,7 @@ export class RepositoriesList extends React.Component<
         onlyWhenOverflowed={true}
         tagName="div"
       >
+        {icon}
         {label}
       </TooltippedContent>
     )
@@ -299,6 +501,10 @@ export class RepositoriesList extends React.Component<
       onViewOnGitHub: this.props.onViewOnGitHub,
       repository: item.repository,
       shellLabel: this.props.shellLabel,
+      onToggleFavorite: this.onToggleFavorite,
+      onMoveToFolder: this.onMoveToFolder,
+      onCreateFolder: this.onCreateFolder,
+      folders: this.props.repositoryFolders,
     })
 
     showContextualMenu(items)
@@ -318,7 +524,7 @@ export class RepositoriesList extends React.Component<
     const groups = this.getRepositoryGroups(
       this.props.repositories,
       this.props.localRepositoryStateLookup,
-      this.props.recentRepositories
+      this.props.repositoryFolders
     )
 
     // So there's two types of selection at play here. There's the repository
@@ -340,13 +546,16 @@ export class RepositoriesList extends React.Component<
           renderItem={this.renderItem}
           renderRowFocusTooltip={this.renderRowFocusTooltip}
           renderGroupHeader={this.renderGroupHeader}
+          shouldRenderGroupHeader={this.shouldRenderGroupHeader}
           onItemClick={this.onItemClick}
           renderPostFilter={this.renderPostFilter}
           renderNoItems={this.renderNoItems}
           groups={groups}
+          isGroupCollapsed={this.isGroupCollapsed}
           invalidationProps={{
             repositories: this.props.repositories,
             filterText: this.props.filterText,
+            collapsedGroups: this.state.collapsedGroups,
           }}
           onItemContextMenu={this.onItemContextMenu}
           getGroupAriaLabel={this.getGroupAriaLabelGetter(groups)}
@@ -455,5 +664,23 @@ export class RepositoriesList extends React.Component<
 
   private onRemoveRepositoryAlias = (repository: Repository) => {
     this.props.dispatcher.changeRepositoryAlias(repository, null)
+  }
+
+  private onToggleFavorite = (repository: Repository) => {
+    this.props.dispatcher.toggleRepositoryFavorite(repository)
+  }
+
+  private onMoveToFolder = (
+    repository: Repository,
+    folderId: number | null
+  ) => {
+    this.props.dispatcher.setRepositoryFolder(repository, folderId)
+  }
+
+  private onCreateFolder = (parentId?: number | null) => {
+    this.props.dispatcher.showPopup({
+      type: PopupType.CreateRepositoryFolder,
+      parentId: parentId ?? null,
+    })
   }
 }

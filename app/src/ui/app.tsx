@@ -136,6 +136,7 @@ import { CommitDragElement } from './drag-elements/commit-drag-element'
 import classNames from 'classnames'
 import { MoveToApplicationsFolder } from './move-to-applications-folder'
 import { ChangeRepositoryAlias } from './change-repository-alias/change-repository-alias-dialog'
+import { FolderDialog } from './folder-dialog/folder-dialog'
 import { ThankYou } from './thank-you'
 import {
   getUserContributions,
@@ -2116,6 +2117,25 @@ export class App extends React.Component<IAppProps, IAppState> {
           />
         )
       }
+      case PopupType.CreateRepositoryFolder: {
+        return (
+          <FolderDialog
+            dispatcher={this.props.dispatcher}
+            onDismissed={onPopupDismissedFn}
+            parentId={popup.parentId}
+          />
+        )
+      }
+      case PopupType.RenameRepositoryFolder: {
+        return (
+          <FolderDialog
+            dispatcher={this.props.dispatcher}
+            onDismissed={onPopupDismissedFn}
+            folderId={popup.folderId}
+            currentName={popup.currentName}
+          />
+        )
+      }
       case PopupType.ThankYou:
         return (
           <ThankYou
@@ -2930,7 +2950,7 @@ export class App extends React.Component<IAppProps, IAppState> {
         selectedRepository={selectedRepository}
         onSelectionChanged={this.onSelectionChanged}
         repositories={this.state.repositories}
-        recentRepositories={this.state.recentRepositories}
+        repositoryFolders={this.state.repositoryFolders}
         localRepositoryStateLookup={this.state.localRepositoryStateLookup}
         askForConfirmationOnRemoveRepository={
           this.state.askForConfirmationOnRepositoryRemoval
@@ -3132,6 +3152,16 @@ export class App extends React.Component<IAppProps, IAppState> {
       shellLabel: this.state.useCustomShell
         ? undefined
         : this.state.selectedShell,
+      onToggleFavorite: (repo: Repository) =>
+        this.props.dispatcher.toggleRepositoryFavorite(repo),
+      onMoveToFolder: (repo: Repository, folderId: number | null) =>
+        this.props.dispatcher.setRepositoryFolder(repo, folderId),
+      onCreateFolder: (parentId?: number | null) =>
+        this.props.dispatcher.showPopup({
+          type: PopupType.CreateRepositoryFolder,
+          parentId: parentId ?? null,
+        }),
+      folders: this.state.repositoryFolders,
     })
 
     showContextualMenu(items)

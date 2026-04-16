@@ -65,6 +65,18 @@ export interface IDatabaseRepository {
    * of Git and GitHub.
    */
   readonly isTutorialRepository?: boolean
+
+  /** Whether this repository is marked as a favorite */
+  readonly isFavorite?: boolean
+
+  /** The ID of the folder this repository belongs to, or null if ungrouped */
+  readonly folderId?: number | null
+}
+
+export interface IDatabaseRepositoryFolder {
+  readonly id?: number
+  readonly name: string
+  readonly parentId?: number | null
 }
 
 /**
@@ -92,6 +104,12 @@ export class RepositoriesDatabase extends BaseDatabase {
 
   /** The GitHub repository owners table. */
   public declare owners: Dexie.Table<IDatabaseOwner, number>
+
+  /** The repository folders table. */
+  public declare repositoryFolders: Dexie.Table<
+    IDatabaseRepositoryFolder,
+    number
+  >
 
   /**
    * Initialize a new repository database.
@@ -137,6 +155,9 @@ export class RepositoriesDatabase extends BaseDatabase {
 
     this.conditionalVersion(8, {}, ensureNoUndefinedParentID)
     this.conditionalVersion(9, { owners: '++id, &key' }, createOwnerKey)
+    this.conditionalVersion(10, {
+      repositoryFolders: '++id, &name',
+    })
   }
 }
 

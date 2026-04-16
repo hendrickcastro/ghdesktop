@@ -1,8 +1,8 @@
 {
-  "name": "desktop",
-  "productName": "GitHub Desktop",
-  "bundleID": "com.github.GitHubClient",
-  "companyName": "GitHub, Inc.",
+  "name": "desktop-knwr",
+  "productName": "GitHub Desktop KNWR",
+  "bundleID": "com.knwr.GitHubDesktop",
+  "companyName": "KNWR",
   "version": "3.5.7",
   "main": "./main.js",
   "repository": {

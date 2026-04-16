@@ -378,6 +378,14 @@ export const showSaveDialog = invokeProxy('show-save-dialog', 1)
  */
 export const showOpenDialog = invokeProxy('show-open-dialog', 1)
 
+/**
+ * Tell the main process to show open dialog with multi-selection support
+ */
+export const showOpenDialogMultiple = invokeProxy(
+  'show-open-dialog-multiple',
+  1
+)
+
 /** Tell the main process read/save the user GUID from/to file */
 export const saveGUID = invokeProxy('save-guid', 1)
 export const getGUID = invokeProxy('get-guid', 0)

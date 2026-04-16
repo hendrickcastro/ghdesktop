@@ -223,3 +223,56 @@
     justify-content: unset;
   }
 }
+
+.repository-list,
+.repository-list-item-tooltip {
+  .favorite-indicator {
+    display: flex;
+    align-items: center;
+    margin-left: var(--spacing-half);
+
+    .octicon {
+      color: #d4a017;
+      width: 12px;
+      height: 12px;
+    }
+  }
+}
+
+.filter-list-group-header {
+  .group-header-icon {
+    margin-right: 4px;
+    vertical-align: text-bottom;
+  }
+
+  .favorites-icon .octicon {
+    color: #d4a017;
+  }
+
+  .folder-icon .octicon {
+    color: var(--text-secondary-color);
+  }
+
+  &.collapsible {
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+
+    .collapse-chevron {
+      margin-right: 2px;
+      transition: transform 0.15s ease;
+
+      .octicon {
+        width: 12px;
+        height: 12px;
+        color: var(--text-secondary-color);
+        transform: rotate(90deg);
+      }
+    }
+
+    &.collapsed .collapse-chevron .octicon {
+      transform: rotate(0deg);
+    }
+  }
+}

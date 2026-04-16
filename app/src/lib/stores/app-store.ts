@@ -298,6 +298,7 @@ import { createTutorialRepository } from './helpers/create-tutorial-repository'
 import { sendNonFatalException } from '../helpers/non-fatal-exception'
 import { getDefaultDir } from '../../ui/lib/default-dir'
 import { WorkflowPreferences } from '../../models/workflow-preferences'
+import { IRepositoryFolder } from '../../models/repository-folder'
 import { RepositoryIndicatorUpdater } from './helpers/repository-indicator-updater'
 import { isAttributableEmailFor } from '../email'
 import { TrashNameLabel } from '../../ui/lib/context-menu'
@@ -485,6 +486,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
   private accounts: ReadonlyArray<Account> = new Array<Account>()
   private repositories: ReadonlyArray<Repository> = new Array<Repository>()
   private recentRepositories: ReadonlyArray<number> = new Array<number>()
+  private repositoryFolders: ReadonlyArray<IRepositoryFolder> = []
 
   private selectedRepository: Repository | CloningRepository | null = null
 
@@ -1059,6 +1061,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
       accounts: this.accounts,
       repositories,
       recentRepositories: this.recentRepositories,
+      repositoryFolders: this.repositoryFolders,
       localRepositoryStateLookup: this.localRepositoryStateLookup,
       windowState: this.windowState,
       windowZoomFactor: this.windowZoomFactor,
@@ -2211,6 +2214,8 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
     this.accounts = accounts
     this.repositories = repositories
+    this.repositoryFolders =
+      await this.repositoriesStore.getAllFolders()
 
     this.updateRepositorySelectionAfterRepositoriesChanged()
 
@@ -4500,6 +4505,49 @@ export class AppStore extends TypedBaseStore<IAppState> {
     newAlias: string | null
   ): Promise<void> {
     return this.repositoriesStore.updateRepositoryAlias(repository, newAlias)
+  }
+
+  /** This shouldn't be called directly. See `Dispatcher`. */
+  public async _toggleRepositoryFavorite(
+    repository: Repository
+  ): Promise<void> {
+    return this.repositoriesStore.updateRepositoryFavorite(
+      repository,
+      !repository.isFavorite
+    )
+  }
+
+  /** This shouldn't be called directly. See `Dispatcher`. */
+  public async _setRepositoryFolder(
+    repository: Repository,
+    folderId: number | null
+  ): Promise<void> {
+    return this.repositoriesStore.updateRepositoryFolder(repository, folderId)
+  }
+
+  /** This shouldn't be called directly. See `Dispatcher`. */
+  public async _createFolder(
+    name: string,
+    parentId: number | null = null
+  ): Promise<IRepositoryFolder> {
+    const folder = await this.repositoriesStore.createFolder(name, parentId)
+    this.repositoryFolders = await this.repositoriesStore.getAllFolders()
+    this.emitUpdate()
+    return folder
+  }
+
+  /** This shouldn't be called directly. See `Dispatcher`. */
+  public async _renameFolder(id: number, name: string): Promise<void> {
+    await this.repositoriesStore.renameFolder(id, name)
+    this.repositoryFolders = await this.repositoriesStore.getAllFolders()
+    this.emitUpdate()
+  }
+
+  /** This shouldn't be called directly. See `Dispatcher`. */
+  public async _deleteFolder(id: number): Promise<void> {
+    await this.repositoriesStore.deleteFolder(id)
+    this.repositoryFolders = await this.repositoriesStore.getAllFolders()
+    this.emitUpdate()
   }
 
   /** This shouldn't be called directly. See `Dispatcher`. */

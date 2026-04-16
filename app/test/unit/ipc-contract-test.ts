@@ -90,6 +90,7 @@ describe('IPC channel contract', () => {
     'resolve-proxy',
     'show-save-dialog',
     'show-open-dialog',
+    'show-open-dialog-multiple',
     'is-window-maximized',
     'get-apple-action-on-double-click',
     'should-use-dark-colors',

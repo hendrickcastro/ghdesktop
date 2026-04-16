@@ -104,6 +104,7 @@ import { MergeTreeResult } from '../../models/merge'
 import { UncommittedChangesStrategy } from '../../models/uncommitted-changes-strategy'
 import { IStashEntry } from '../../models/stash-entry'
 import { WorkflowPreferences } from '../../models/workflow-preferences'
+import { IRepositoryFolder } from '../../models/repository-folder'
 import { resolveWithin } from '../../lib/path'
 import { CherryPickResult } from '../../lib/git/cherry-pick'
 import { sleep } from '../../lib/promise'
@@ -849,6 +850,37 @@ export class Dispatcher {
     newAlias: string | null
   ): Promise<void> {
     return this.appStore._changeRepositoryAlias(repository, newAlias)
+  }
+
+  /** Toggle the favorite status of a repository. */
+  public toggleRepositoryFavorite(repository: Repository): Promise<void> {
+    return this.appStore._toggleRepositoryFavorite(repository)
+  }
+
+  /** Move a repository into a folder (or remove from folder with null). */
+  public setRepositoryFolder(
+    repository: Repository,
+    folderId: number | null
+  ): Promise<void> {
+    return this.appStore._setRepositoryFolder(repository, folderId)
+  }
+
+  /** Create a new repository folder. */
+  public createFolder(
+    name: string,
+    parentId: number | null = null
+  ): Promise<IRepositoryFolder> {
+    return this.appStore._createFolder(name, parentId)
+  }
+
+  /** Rename an existing repository folder. */
+  public renameFolder(id: number, name: string): Promise<void> {
+    return this.appStore._renameFolder(id, name)
+  }
+
+  /** Delete a repository folder. */
+  public deleteFolder(id: number): Promise<void> {
+    return this.appStore._deleteFolder(id)
   }
 
   /** Rename the branch to a new name. */

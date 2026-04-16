@@ -48,6 +48,7 @@ describe('RepositoryListItem', () => {
         matches={noMatches}
         aheadBehind={{ ahead: 2, behind: 1 }}
         changedFilesCount={3}
+        isFavorite={false}
       />
     )
 
@@ -72,6 +73,7 @@ describe('RepositoryListItem', () => {
         matches={noMatches}
         aheadBehind={null}
         changedFilesCount={0}
+        isFavorite={false}
       />
     )
 
@@ -91,6 +93,7 @@ describe('RepositoryListItem', () => {
         matches={noMatches}
         aheadBehind={null}
         changedFilesCount={0}
+        isFavorite={false}
       />
     )
 

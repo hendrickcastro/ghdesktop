@@ -615,6 +615,26 @@ dialog {
 
   &#add-existing-repository {
     width: 400px;
+
+    .selected-paths-list {
+      max-height: 150px;
+      overflow-y: auto;
+      border: var(--base-border);
+      border-radius: var(--border-radius);
+      padding: var(--spacing-half);
+      font-size: var(--font-size-sm);
+
+      .selected-path-item {
+        padding: 2px 0;
+        font-weight: var(--font-weight-semibold);
+
+        .selected-path-detail {
+          font-weight: normal;
+          color: var(--text-secondary-color);
+          margin-left: var(--spacing-half);
+        }
+      }
+    }
   }
 
   &#initialize-lfs {

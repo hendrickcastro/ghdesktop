@@ -12,7 +12,7 @@ import { OkCancelButtonGroup } from '../dialog/ok-cancel-button-group'
 import { FoldoutType } from '../../lib/app-state'
 
 import untildify from 'untildify'
-import { showOpenDialog } from '../main-process-proxy'
+import { showOpenDialogMultiple } from '../main-process-proxy'
 import { Ref } from '../lib/ref'
 import { InputError } from '../lib/input-description/input-error'
 import { IAccessibleMessage } from '../../models/accessible-message'
@@ -29,6 +29,9 @@ interface IAddExistingRepositoryProps {
 
 interface IAddExistingRepositoryState {
   readonly path: string
+
+  /** Paths selected via the multi-select file picker */
+  readonly selectedPaths: ReadonlyArray<string>
 
   /**
    * Indicates whether or not to render a warning message about the entered path
@@ -59,11 +62,16 @@ export class AddExistingRepository extends React.Component<
 
     this.state = {
       path,
+      selectedPaths: [],
       showNonGitRepositoryWarning: false,
       isRepositoryBare: false,
       isRepositoryUnsafe: false,
       isTrustingRepository: false,
     }
+  }
+
+  private get isMultiSelect(): boolean {
+    return this.state.selectedPaths.length > 1
   }
 
   private onTrustDirectory = async () => {
@@ -77,7 +85,7 @@ export class AddExistingRepository extends React.Component<
   }
 
   private async updatePath(path: string) {
-    this.setState({ path })
+    this.setState({ path, selectedPaths: [] })
   }
 
   private async validatePath(path: string): Promise<boolean> {
@@ -198,6 +206,10 @@ export class AddExistingRepository extends React.Component<
   }
 
   private renderErrors() {
+    if (this.isMultiSelect) {
+      return null
+    }
+
     const msg: IAccessibleMessage | null =
       this.buildBareRepositoryError() ??
       this.buildRepositoryUnsafeError() ??
@@ -219,7 +231,33 @@ export class AddExistingRepository extends React.Component<
     )
   }
 
+  private renderSelectedPaths() {
+    const { selectedPaths } = this.state
+    if (selectedPaths.length <= 1) {
+      return null
+    }
+
+    return (
+      <Row>
+        <div className="selected-paths-list">
+          {selectedPaths.map((p, i) => (
+            <div key={i} className="selected-path-item">
+              {Path.basename(p)}
+              <span className="selected-path-detail">{p}</span>
+            </div>
+          ))}
+        </div>
+      </Row>
+    )
+  }
+
   public render() {
+    const { selectedPaths } = this.state
+    const multiLabel =
+      selectedPaths.length > 1
+        ? `${selectedPaths.length} repositories selected`
+        : undefined
+
     return (
       <Dialog
         id="add-existing-repository"
@@ -232,20 +270,28 @@ export class AddExistingRepository extends React.Component<
           <Row>
             <TextBox
               ref={this.pathTextBoxRef}
-              value={this.state.path}
+              value={multiLabel ?? this.state.path}
               label={__DARWIN__ ? 'Local Path' : 'Local path'}
               placeholder="repository path"
               onValueChanged={this.onPathChanged}
               ariaDescribedBy="add-existing-repository-path-error"
+              disabled={this.isMultiSelect}
             />
             <Button onClick={this.showFilePicker}>Choose…</Button>
           </Row>
+          {this.renderSelectedPaths()}
           {this.renderErrors()}
         </DialogContent>
 
         <DialogFooter>
           <OkCancelButtonGroup
-            okButtonText={__DARWIN__ ? 'Add Repository' : 'Add repository'}
+            okButtonText={
+              this.isMultiSelect
+                ? `Add ${selectedPaths.length} repositories`
+                : __DARWIN__
+                  ? 'Add Repository'
+                  : 'Add repository'
+            }
           />
         </DialogFooter>
       </Dialog>
@@ -259,15 +305,26 @@ export class AddExistingRepository extends React.Component<
   }
 
   private showFilePicker = async () => {
-    const path = await showOpenDialog({
-      properties: ['createDirectory', 'openDirectory'],
+    const paths = await showOpenDialogMultiple({
+      properties: ['createDirectory', 'openDirectory', 'multiSelections'],
     })
 
-    if (path === null) {
+    if (paths === null || paths.length === 0) {
       return
     }
 
-    this.updatePath(path)
+    if (paths.length === 1) {
+      this.setState({ selectedPaths: [] })
+      this.updatePath(paths[0])
+    } else {
+      this.setState({
+        path: paths[0],
+        selectedPaths: [...paths],
+        showNonGitRepositoryWarning: false,
+        isRepositoryBare: false,
+        isRepositoryUnsafe: false,
+      })
+    }
   }
 
   private resolvedPath(path: string): string {
@@ -275,24 +332,41 @@ export class AddExistingRepository extends React.Component<
   }
 
   private addRepository = async () => {
-    const { path } = this.state
-    const isValidPath = await this.validatePath(path)
+    const { selectedPaths, path } = this.state
 
-    if (!isValidPath) {
-      this.pathTextBoxRef.current?.focus()
-      return
-    }
+    if (selectedPaths.length > 1) {
+      // Multi-select mode: add all selected paths
+      const resolvedPaths = selectedPaths.map(p => this.resolvedPath(p))
 
-    this.props.onDismissed()
-    const { dispatcher } = this.props
+      this.props.onDismissed()
+      const { dispatcher } = this.props
+      const repositories = await dispatcher.addRepositories(resolvedPaths)
 
-    const resolvedPath = this.resolvedPath(path)
-    const repositories = await dispatcher.addRepositories([resolvedPath])
+      if (repositories.length > 0) {
+        dispatcher.closeFoldout(FoldoutType.Repository)
+        dispatcher.selectRepository(repositories[0])
+        dispatcher.recordAddExistingRepository()
+      }
+    } else {
+      // Single path mode: validate first
+      const isValidPath = await this.validatePath(path)
 
-    if (repositories.length > 0) {
-      dispatcher.closeFoldout(FoldoutType.Repository)
-      dispatcher.selectRepository(repositories[0])
-      dispatcher.recordAddExistingRepository()
+      if (!isValidPath) {
+        this.pathTextBoxRef.current?.focus()
+        return
+      }
+
+      this.props.onDismissed()
+      const { dispatcher } = this.props
+
+      const resolvedPath = this.resolvedPath(path)
+      const repositories = await dispatcher.addRepositories([resolvedPath])
+
+      if (repositories.length > 0) {
+        dispatcher.closeFoldout(FoldoutType.Repository)
+        dispatcher.selectRepository(repositories[0])
+        dispatcher.recordAddExistingRepository()
+      }
     }
   }
 

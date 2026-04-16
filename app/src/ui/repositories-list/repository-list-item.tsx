@@ -27,6 +27,12 @@ interface IRepositoryListItemProps {
 
   /** Number of uncommitted changes */
   readonly changedFilesCount: number
+
+  /** Whether this repository is marked as a favorite */
+  readonly isFavorite: boolean
+
+  /** Folder nesting depth for indentation (0 = no folder or root folder) */
+  readonly folderDepth?: number
 }
 
 /** A repository item. */
@@ -54,8 +60,12 @@ export class RepositoryListItem extends React.Component<
       alias: alias !== null,
     })
 
+    const depth = this.props.folderDepth ?? 0
+    const depthStyle =
+      depth > 0 ? { paddingLeft: `${depth * 16 + 8}px` } : undefined
+
     return (
-      <div className="repository-list-item" ref={this.listItemRef}>
+      <div className="repository-list-item" ref={this.listItemRef} style={depthStyle}>
         <Tooltip
           target={this.listItemRef}
           disabled={enableAccessibleListToolTips()}
@@ -80,6 +90,7 @@ export class RepositoryListItem extends React.Component<
           renderRepoIndicators({
             aheadBehind: this.props.aheadBehind,
             hasChanges: hasChanges,
+            isFavorite: this.props.isFavorite,
           })}
       </div>
     )
@@ -109,7 +120,8 @@ export class RepositoryListItem extends React.Component<
     ) {
       return (
         nextProps.repository.id !== this.props.repository.id ||
-        nextProps.matches !== this.props.matches
+        nextProps.matches !== this.props.matches ||
+        nextProps.isFavorite !== this.props.isFavorite
       )
     } else {
       return true
@@ -120,12 +132,26 @@ export class RepositoryListItem extends React.Component<
 const renderRepoIndicators: React.FunctionComponent<{
   aheadBehind: IAheadBehind | null
   hasChanges: boolean
+  isFavorite: boolean
 }> = props => {
   return (
     <div className="repo-indicators">
+      {props.isFavorite && renderFavoriteIndicator()}
       {props.aheadBehind && renderAheadBehindIndicator(props.aheadBehind)}
       {props.hasChanges && renderChangesIndicator()}
     </div>
+  )
+}
+
+const renderFavoriteIndicator = () => {
+  return (
+    <TooltippedContent
+      className="favorite-indicator"
+      tooltip="Favorite repository"
+      disabled={enableAccessibleListToolTips()}
+    >
+      <Octicon symbol={octicons.starFill} />
+    </TooltippedContent>
   )
 }
 

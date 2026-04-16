@@ -53,6 +53,7 @@ import { Popup } from '../models/popup'
 import { RepoRulesInfo } from '../models/repo-rules'
 import { IAPIRepoRuleset } from './api'
 import { ICustomIntegration } from './custom-integration'
+import { IRepositoryFolder } from '../models/repository-folder'
 import { Emoji } from './emoji'
 import { IUpdateState } from '../ui/lib/update-store'
 
@@ -87,6 +88,9 @@ export interface IAppState {
    * List of IDs of the most recently opened repositories (most recent first)
    */
   readonly recentRepositories: ReadonlyArray<number>
+
+  /** User-created folders for organizing repositories */
+  readonly repositoryFolders: ReadonlyArray<IRepositoryFolder>
 
   /**
    * A cache of the latest repository state values, keyed by the repository id
