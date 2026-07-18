@@ -279,6 +279,30 @@ async function handleCommandLineArguments(argv: string[]) {
     return
   }
 
+  // On Linux the OS invokes our registered .desktop handler with the protocol
+  // URL passed as a plain argument (there's no --protocol-launcher switch like
+  // on Windows, and no `open-url` event like on macOS). So we scan argv for any
+  // argument that looks like one of our custom protocol URLs and route it.
+  if (__LINUX__) {
+    const prefixes = Array.from(possibleProtocols, p => `${p}://`)
+    const matchingUrl = argv.find(arg => {
+      if (prefixes.some(p => arg.startsWith(p))) {
+        try {
+          new URL(arg)
+          return true
+        } catch (e) {
+          log.error(`Unable to parse argument as URL: ${arg}`)
+        }
+      }
+      return false
+    })
+
+    if (matchingUrl) {
+      handleAppURL(matchingUrl)
+      return
+    }
+  }
+
   if (typeof args['cli-open'] === 'string') {
     handleCLIAction({ kind: 'open-repository', path: args['cli-open'] })
   } else if (typeof args['cli-clone'] === 'string') {
