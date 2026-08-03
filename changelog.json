@@ -1,5 +1,17 @@
 {
   "releases": {
+    "3.5.9": [
+      "[Added] Search box to filter the AI model list by name",
+      "[Fixed] The AI model table now scrolls in place instead of pushing the controls below it off the screen",
+      "[Fixed] The version shown in About now matches the release"
+    ],
+    "3.5.8": [
+      "[Added] Generate commit messages with your own AI provider - Anthropic, OpenAI, Gemini, or OpenRouter - instead of GitHub Copilot",
+      "[Added] Group repositories into folders, and nest folders inside folders via right-click, Move to",
+      "[Fixed] Subfolders can reuse a name that already exists under a different parent",
+      "[Fixed] The AI preferences pane no longer overflows the dialog off the bottom of the screen",
+      "[Removed] Auto-updates, which replaced this fork with upstream GitHub Desktop"
+    ],
     "3.5.7": [
       "[Added] Rename branch dialog now validates branch names against repository rulesets - #21822",
       "[Added] Allow empty commits via the commit options menu - #21771",

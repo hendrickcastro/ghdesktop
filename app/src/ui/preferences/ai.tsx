@@ -66,6 +66,8 @@ interface IAIPreferencesState {
   readonly modelsState: AsyncState
   /** Models reported by the provider, or null before they've been loaded. */
   readonly models: ReadonlyArray<IFetchedAIModel> | null
+  /** Substring the model list is filtered by. */
+  readonly filter: string
 }
 
 /** Cheapest first; models with no known price sort to the bottom. */
@@ -92,6 +94,7 @@ export class AI extends React.Component<
       testState: { kind: 'idle' },
       modelsState: { kind: 'idle' },
       models: null,
+      filter: '',
     }
   }
 
@@ -164,7 +167,12 @@ export class AI extends React.Component<
       testState: { kind: 'idle' },
       modelsState: { kind: 'idle' },
       models: null,
+      filter: '',
     })
+  }
+
+  private onFilterChanged = (filter: string) => {
+    this.setState({ filter })
   }
 
   private onModelChanged = (event: React.FormEvent<HTMLSelectElement>) => {
@@ -277,6 +285,32 @@ export class AI extends React.Component<
       .sort(byPriceThenLabel)
   }
 
+  /**
+   * displayModels narrowed by the search box.
+   *
+   * The currently selected model is always kept, so filtering can never leave the
+   * dropdown showing a different model than the one that's actually configured.
+   */
+  private get filteredModels(): ReadonlyArray<IDisplayModel> {
+    const { aiProviderConfig: config } = this.props
+    const needle = this.state.filter.trim().toLowerCase()
+    const models = this.displayModels
+
+    if (needle === '') {
+      return models
+    }
+
+    const selected =
+      config.model === '' ? getDefaultAIModel(config.provider) : config.model
+
+    return models.filter(
+      m =>
+        m.id === selected ||
+        m.id.toLowerCase().includes(needle) ||
+        m.label.toLowerCase().includes(needle)
+    )
+  }
+
   public render() {
     const { aiProviderConfig: config } = this.props
 
@@ -304,7 +338,7 @@ export class AI extends React.Component<
 
   private renderProviderSettings() {
     const { aiProviderConfig: config, aiAPIKey } = this.props
-    const models = this.displayModels
+    const models = this.filteredModels
     const selectedModel =
       config.model === '' ? getDefaultAIModel(config.provider) : config.model
     const busy =
@@ -360,11 +394,19 @@ export class AI extends React.Component<
             ))}
           </Select>
 
+          <TextBox
+            label="Search models"
+            type="search"
+            value={this.state.filter}
+            placeholder="e.g. luna, mini, haiku"
+            onValueChanged={this.onFilterChanged}
+          />
+
           <div className="ai-model-actions">
             <Button onClick={this.onLoadModels} disabled={busy}>
               {this.state.modelsState.kind === 'busy'
                 ? 'Loading models…'
-                : 'Load models from provider'}
+                : 'Reload models from provider'}
             </Button>
           </div>
           {this.renderState(this.state.modelsState)}
