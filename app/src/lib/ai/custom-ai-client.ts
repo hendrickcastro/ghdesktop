@@ -50,29 +50,61 @@ async function failedRequestError(
   )
 }
 
+/** The two spellings OpenAI-compatible APIs use for the output token cap. */
+type TokenLimitParam = 'max_tokens' | 'max_completion_tokens'
+
+function postChatCompletion(
+  config: IAIProviderConfig,
+  apiKey: string,
+  prompt: string,
+  tokenLimitParam: TokenLimitParam
+): Promise<Response> {
+  return fetch(`${getEffectiveAIBaseURL(config)}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: getEffectiveAIModel(config),
+      [tokenLimitParam]: MaxResponseTokens,
+      messages: [
+        { role: 'system', content: CommitMessageSystemPrompt },
+        { role: 'user', content: prompt },
+      ],
+    }),
+  })
+}
+
 async function sendOpenAICompatible(
   config: IAIProviderConfig,
   apiKey: string,
   prompt: string
 ): Promise<string> {
-  const response = await fetch(
-    `${getEffectiveAIBaseURL(config)}/chat/completions`,
-    {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: getEffectiveAIModel(config),
-        max_tokens: MaxResponseTokens,
-        messages: [
-          { role: 'system', content: CommitMessageSystemPrompt },
-          { role: 'user', content: prompt },
-        ],
-      }),
+  let response = await postChatCompletion(config, apiKey, prompt, 'max_tokens')
+
+  // Newer OpenAI models reject max_tokens outright and require
+  // max_completion_tokens. Which models those are keeps changing, so react to
+  // the error the API actually returns rather than pattern-matching model names
+  // that will be out of date by the next release.
+  if (response.status === 400) {
+    const detail = await response.text()
+
+    if (detail.includes('max_completion_tokens')) {
+      response = await postChatCompletion(
+        config,
+        apiKey,
+        prompt,
+        'max_completion_tokens'
+      )
+    } else {
+      throw new Error(
+        `${config.provider} request failed (400 ${
+          response.statusText
+        }): ${detail.slice(0, 500)}`
+      )
     }
-  )
+  }
 
   if (!response.ok) {
     throw await failedRequestError(config.provider, response)

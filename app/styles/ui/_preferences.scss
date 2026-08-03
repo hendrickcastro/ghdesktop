@@ -274,6 +274,15 @@
   }
 }
 
+// A tall tab must not push the dialog's footer off the bottom of the screen -
+// that leaves Save and Cancel unreachable. The base dialog only makes its content
+// scrollable below 550px of viewport height, which was fine while every tab was
+// short; the AI tab is legitimately tall, so scroll it at any height.
+#preferences .preferences-container .tab-container .dialog-content {
+  max-height: calc(100vh - 200px);
+  overflow-y: auto;
+}
+
 // Deliberately a top-level block rather than nested inside #preferences: an
 // earlier version of this lived at the bottom of that rule and silently ended up
 // scoped to .custom-theme-selector instead, so none of it ever matched. Spelling

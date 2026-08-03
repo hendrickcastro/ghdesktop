@@ -34,7 +34,7 @@ import {
  * The table scrolls inside its own bounded container, so this only caps how much
  * is rendered - it does not affect the dialog's height.
  */
-const MaxPricingRows = 30
+const MaxPricingRows = 12
 
 interface IAIPreferencesProps {
   readonly aiProviderConfig: IAIProviderConfig
@@ -324,10 +324,9 @@ export class AI extends React.Component<
             onChange={this.onEnabledChanged}
           />
           <p className="git-settings-description">
-            Generates commit messages through the provider you configure here
-            instead of GitHub Copilot, so the feature works without a Copilot
-            subscription. Your API key is stored in the operating system's
-            credential manager, never in a settings file.
+            Generates commit messages through your provider instead of Copilot,
+            so no Copilot subscription is needed. Your key is stored in the OS
+            credential manager.
           </p>
         </div>
 
@@ -422,8 +421,7 @@ export class AI extends React.Component<
             onValueChanged={this.onBaseURLChanged}
           />
           <p className="git-settings-description">
-            Leave empty to use the provider's own endpoint. Set this to reach a
-            proxy or a self-hosted, compatible service.
+            Leave empty for the provider's own endpoint.
           </p>
         </div>
 
@@ -504,30 +502,21 @@ export class AI extends React.Component<
       models.map(m => m.priceSource).filter(s => s !== null)
     )
 
+    // Kept to one line: this pane is already tall, and a paragraph of caveats
+    // here is what pushed the dialog's footer off the screen.
+    const attribution = sources.has('provider')
+      ? `from ${getAIProviderName(provider)}`
+      : sources.has('community')
+      ? 'from the community LiteLLM catalogue'
+      : 'bundled with the app'
+
     return (
       <p className="git-settings-description">
-        Prices are per million tokens, in US dollars, cheapest first; a dash
-        means the price isn't known.{' '}
-        {this.state.models === null
-          ? 'Load the model list to see the models your key can actually use, with current prices.'
-          : ''}
-        {sources.has('provider')
-          ? `Prices come from ${getAIProviderName(provider)}'s own API. `
-          : ''}
-        {sources.has('community')
-          ? `${getAIProviderName(
-              provider
-            )} does not publish prices through its API, so these come from the community-maintained LiteLLM catalogue, fetched just now rather than compiled into the app. `
-          : ''}
-        {sources.has('bundled')
-          ? 'Some figures come from a small table bundled with the app and can go out of date. '
-          : ''}
-        Check{' '}
+        USD per million tokens, {attribution}; a dash means unknown. See{' '}
         <LinkButton uri={getAIProviderPricingURL(provider)}>
           {getAIProviderName(provider)} pricing
-        </LinkButton>{' '}
-        for the authoritative rates. Commit messages send a diff and return a
-        couple of lines, so a cheap model is usually the right choice.
+        </LinkButton>
+        .
       </p>
     )
   }
