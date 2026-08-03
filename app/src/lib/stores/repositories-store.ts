@@ -732,18 +732,99 @@ export class RepositoriesStore extends TypedBaseStore<
     }))
   }
 
+  /**
+   * Ensures a folder name is free among its siblings.
+   *
+   * Uniqueness is scoped to the parent, the same way it works on a filesystem -
+   * two different folders can each hold a `frontend`. Sibling lists are tiny, so
+   * this walks the table rather than querying an index (which couldn't cover
+   * root-level folders anyway - see the schema comment in
+   * repositories-database.ts).
+   *
+   * @param excludeId A folder to ignore, so renaming or moving a folder doesn't
+   *                  collide with itself
+   */
+  private async assertFolderNameAvailable(
+    name: string,
+    parentId: number | null,
+    excludeId?: number
+  ): Promise<void> {
+    const trimmed = name.trim()
+    const allFolders = await this.db.repositoryFolders.toArray()
+
+    const clash = allFolders.find(
+      f =>
+        (f.parentId ?? null) === parentId &&
+        f.id !== excludeId &&
+        f.name.trim().localeCompare(trimmed, undefined, {
+          sensitivity: 'accent',
+        }) === 0
+    )
+
+    if (clash !== undefined) {
+      throw new Error(
+        `A folder named '${trimmed}' already exists here. Choose a different name.`
+      )
+    }
+  }
+
   /** Create a new repository folder. */
   public async createFolder(
     name: string,
     parentId: number | null = null
   ): Promise<IRepositoryFolder> {
+    await this.assertFolderNameAvailable(name, parentId)
     const id = await this.db.repositoryFolders.add({ name, parentId })
     return { id, name, parentId }
   }
 
   /** Rename an existing repository folder. */
   public async renameFolder(id: number, name: string): Promise<void> {
+    const folder = await this.db.repositoryFolders.get(id)
+
+    if (folder === undefined) {
+      throw new Error(`Folder ${id} no longer exists.`)
+    }
+
+    await this.assertFolderNameAvailable(name, folder.parentId ?? null, id)
     await this.db.repositoryFolders.update(id, { name })
+  }
+
+  /**
+   * Move a folder, and everything inside it, under a new parent.
+   *
+   * @param newParentId The folder to nest under, or null to move it back out to
+   *                    the top level
+   */
+  public async moveFolder(
+    id: number,
+    newParentId: number | null
+  ): Promise<void> {
+    if (id === newParentId) {
+      throw new Error('A folder cannot be moved into itself.')
+    }
+
+    const allFolders = await this.db.repositoryFolders.toArray()
+    const folder = allFolders.find(f => f.id === id)
+
+    if (folder === undefined) {
+      throw new Error(`Folder ${id} no longer exists.`)
+    }
+
+    // Moving a folder inside its own subtree would detach that whole branch
+    // from the root, leaving it in the database but impossible to render.
+    if (
+      newParentId !== null &&
+      this.getDescendantFolderIds(id, allFolders).includes(newParentId)
+    ) {
+      throw new Error(
+        'A folder cannot be moved into one of its own subfolders.'
+      )
+    }
+
+    await this.assertFolderNameAvailable(folder.name, newParentId, id)
+    await this.db.repositoryFolders.update(id, { parentId: newParentId })
+    this.emitUpdatedRepositories()
   }
 
   /** Delete a repository folder, its subfolders, and unassign all their repositories. */
@@ -754,7 +835,11 @@ export class RepositoriesStore extends TypedBaseStore<
 
     const repos = await this.db.repositories.toArray()
     for (const repo of repos) {
-      if (repo.folderId !== undefined && repo.folderId !== null && idsToDelete.includes(repo.folderId)) {
+      if (
+        repo.folderId !== undefined &&
+        repo.folderId !== null &&
+        idsToDelete.includes(repo.folderId)
+      ) {
         await this.db.repositories.update(repo.id!, { folderId: null })
       }
     }

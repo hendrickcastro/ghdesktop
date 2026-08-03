@@ -158,6 +158,15 @@ export class RepositoriesDatabase extends BaseDatabase {
     this.conditionalVersion(10, {
       repositoryFolders: '++id, &name',
     })
+    // Drop the unique index on name: folder names only need to be unique among
+    // siblings, so `ClientA/frontend` and `ClientB/frontend` are both valid. A
+    // compound `&[parentId+name]` index would express that, except IndexedDB
+    // refuses to index a key containing null - which is exactly what a
+    // root-level folder's parentId is. The constraint is enforced in
+    // RepositoriesStore instead, where it can also produce a useful message.
+    this.conditionalVersion(11, {
+      repositoryFolders: '++id, name, parentId',
+    })
   }
 }
 

@@ -1,4 +1,5 @@
 import { Account } from '../models/account'
+import { isCustomAIEnabled } from './ai/ai-config'
 
 const Disable = false
 
@@ -89,6 +90,12 @@ export const enableCustomIntegration = () => true
 export const enableResizingToolbarButtons = () => true
 
 export const enableCommitMessageGeneration = (account: Account) => {
+  // A user-configured AI provider stands in for Copilot here, so the Copilot
+  // entitlement below doesn't gate the feature - the user brings their own key.
+  if (isCustomAIEnabled()) {
+    return true
+  }
+
   return (
     (account.features ?? []).includes(
       'desktop_copilot_generate_commit_message'

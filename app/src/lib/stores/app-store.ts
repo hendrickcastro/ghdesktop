@@ -250,6 +250,8 @@ import {
   setObject,
   getFloatNumber,
 } from '../local-storage'
+import { getAIProviderConfig, isCustomAIEnabled } from '../ai/ai-config'
+import { generateCommitMessageWithCustomAI } from '../ai/custom-ai-client'
 import { ExternalEditorError, suggestedExternalEditor } from '../editors/shared'
 import { ApiRepositoriesStore } from './api-repositories-store'
 import {
@@ -2214,8 +2216,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
     this.accounts = accounts
     this.repositories = repositories
-    this.repositoryFolders =
-      await this.repositoriesStore.getAllFolders()
+    this.repositoryFolders = await this.repositoriesStore.getAllFolders()
 
     this.updateRepositorySelectionAfterRepositoriesChanged()
 
@@ -4544,6 +4545,16 @@ export class AppStore extends TypedBaseStore<IAppState> {
   }
 
   /** This shouldn't be called directly. See `Dispatcher`. */
+  public async _moveFolder(
+    id: number,
+    newParentId: number | null
+  ): Promise<void> {
+    await this.repositoriesStore.moveFolder(id, newParentId)
+    this.repositoryFolders = await this.repositoriesStore.getAllFolders()
+    this.emitUpdate()
+  }
+
+  /** This shouldn't be called directly. See `Dispatcher`. */
   public async _deleteFolder(id: number): Promise<void> {
     await this.repositoriesStore.deleteFolder(id)
     this.repositoryFolders = await this.repositoriesStore.getAllFolders()
@@ -5692,10 +5703,16 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
     this._setCommitMessageGenerationButtonClicked()
 
+    // The disclaimer is specific to Copilot; a user who wired up their own
+    // provider has already agreed to that provider's terms, so showing it would
+    // be both confusing and wrong.
+    const useCustomAI = isCustomAIEnabled()
+
     if (
-      !this.commitMessageGenerationDisclaimerLastSeen ||
-      offsetFromNow(-30, 'days') >
-        this.commitMessageGenerationDisclaimerLastSeen
+      !useCustomAI &&
+      (!this.commitMessageGenerationDisclaimerLastSeen ||
+        offsetFromNow(-30, 'days') >
+          this.commitMessageGenerationDisclaimerLastSeen)
     ) {
       await this._showPopup({
         type: PopupType.GenerateCommitMessageDisclaimer,
@@ -5721,7 +5738,9 @@ export class AppStore extends TypedBaseStore<IAppState> {
       }
 
       try {
-        const response = enableCopilotSdkCommitMessageGeneration(account)
+        const response = useCustomAI
+          ? await generateCommitMessageWithCustomAI(getAIProviderConfig(), diff)
+          : enableCopilotSdkCommitMessageGeneration(account)
           ? await this.copilotStore.generateCommitMessage(diff, repository.path)
           : await API.fromAccount(account).getDiffChangesCommitMessage(diff)
 

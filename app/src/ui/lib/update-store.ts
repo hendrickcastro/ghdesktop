@@ -224,6 +224,13 @@ class UpdateStore {
   }
 
   private async getUpdatesUrl(skipGuidCheck: boolean) {
+    // An empty updates URL means this build has no feed of its own to check, so
+    // there's nothing to look for. See areUpdatesDisabled in
+    // script/dist-info.ts for why we don't fall back to upstream's feed.
+    if (__UPDATES_URL__ === '') {
+      return null
+    }
+
     let url = null
 
     try {
@@ -271,8 +278,14 @@ class UpdateStore {
   }
 
   private async updatePriorityUpdateStatus() {
+    const updatesUrl = await this.getUpdatesUrl(false)
+
+    if (updatesUrl === null) {
+      return
+    }
+
     try {
-      const response = await fetch(await this.getUpdatesUrl(false), {
+      const response = await fetch(updatesUrl, {
         method: 'HEAD',
         headers: { 'user-agent': getUserAgent() },
       })

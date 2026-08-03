@@ -29,10 +29,7 @@ import { IAheadBehind } from '../../models/branch'
 import { IRepositoryFolder } from '../../models/repository-folder'
 import classNames from 'classnames'
 import { commitGrammar } from './repository-list-item'
-import {
-  getStringArray,
-  setStringArray,
-} from '../../lib/local-storage'
+import { getStringArray, setStringArray } from '../../lib/local-storage'
 
 const BlankSlateImage = encodePathAsUrl(__dirname, 'static/empty-no-repo.svg')
 const collapsedGroupsKey = 'collapsed-repo-groups'
@@ -377,6 +374,10 @@ export class RepositoriesList extends React.Component<
           })
         },
       },
+      {
+        label: __DARWIN__ ? 'Move To' : 'Move to',
+        submenu: this.buildMoveFolderSubmenu(group.folderId),
+      },
       { type: 'separator' },
       {
         label: __DARWIN__ ? 'Delete Folder' : 'Delete folder',
@@ -387,6 +388,88 @@ export class RepositoriesList extends React.Component<
     ]
 
     showContextualMenu(items)
+  }
+
+  /**
+   * Builds the list of folders a folder can be moved into.
+   *
+   * A folder can't be moved into itself or into anything nested beneath it -
+   * that would detach the whole branch from the root and leave it unreachable in
+   * the sidebar - so both are left out rather than offered and then rejected.
+   */
+  private buildMoveFolderSubmenu(folderId: number): ReadonlyArray<IMenuItem> {
+    const { repositoryFolders } = this.props
+
+    const descendantIds = new Set<number>()
+    const collectDescendants = (parentId: number) => {
+      for (const folder of repositoryFolders) {
+        if (folder.parentId === parentId && !descendantIds.has(folder.id)) {
+          descendantIds.add(folder.id)
+          collectDescendants(folder.id)
+        }
+      }
+    }
+    collectDescendants(folderId)
+
+    const current = repositoryFolders.find(f => f.id === folderId)
+
+    // Shows each candidate as its full path, so two folders that share a name
+    // under different parents are still distinguishable.
+    const pathOf = (folder: IRepositoryFolder): string => {
+      const segments = [folder.name]
+      let parentId = folder.parentId
+
+      while (parentId !== null) {
+        const parent: IRepositoryFolder | undefined = repositoryFolders.find(
+          f => f.id === parentId
+        )
+
+        if (parent === undefined) {
+          break
+        }
+
+        segments.unshift(parent.name)
+        parentId = parent.parentId
+      }
+
+      return segments.join(' / ')
+    }
+
+    const targets = repositoryFolders
+      .filter(f => f.id !== folderId && !descendantIds.has(f.id))
+      .map(f => ({ folder: f, path: pathOf(f) }))
+      .sort((a, b) => a.path.localeCompare(b.path))
+
+    const items: IMenuItem[] = [
+      {
+        label: __DARWIN__ ? 'Top Level' : 'Top level',
+        enabled: current !== undefined && current.parentId !== null,
+        action: () => this.moveFolder(folderId, null),
+      },
+    ]
+
+    if (targets.length > 0) {
+      items.push({ type: 'separator' })
+
+      for (const { folder, path } of targets) {
+        items.push({
+          label: path,
+          // Already its parent - offering it would be a no-op.
+          enabled: current?.parentId !== folder.id,
+          action: () => this.moveFolder(folderId, folder.id),
+        })
+      }
+    }
+
+    return items
+  }
+
+  private moveFolder = (folderId: number, newParentId: number | null) => {
+    // moveFolder rejects name clashes and cycles; surface those to the user
+    // rather than leaving an unhandled rejection.
+    this.props.dispatcher
+      .moveFolder(folderId, newParentId)
+      .catch(e => this.props.dispatcher.postError(e))
   }
 
   private shouldRenderGroupHeader = (group: RepositoryListGroup): boolean => {

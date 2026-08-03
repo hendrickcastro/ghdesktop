@@ -135,7 +135,23 @@ export function getDistArchitecture(): 'arm64' | 'x64' {
   return 'x64'
 }
 
+/**
+ * Whether this build should check for updates at all.
+ *
+ * This fork doesn't run an update server of its own, and upstream's feed
+ * (desktop/desktop on Central) serves vanilla GitHub Desktop. Left enabled, the
+ * first background check silently replaces this build with upstream's - fork
+ * features and all. Point DESKTOP_UPDATES_URL at a feed we control to opt back
+ * in.
+ */
+export const areUpdatesDisabled = () =>
+  process.env.DESKTOP_UPDATES_URL === undefined
+
 export function getUpdatesURL() {
+  if (process.env.DESKTOP_UPDATES_URL !== undefined) {
+    return process.env.DESKTOP_UPDATES_URL
+  }
+
   // It is also possible to use a `x64/` path, but for now we'll leave the
   // original URL without architecture in it (which will still work for
   // compatibility reasons) in case anything goes wrong until we have everything

@@ -42,6 +42,15 @@ import { Prompts } from './prompts'
 import { Repository } from '../../models/repository'
 import { Notifications } from './notifications'
 import { Accessibility } from './accessibility'
+import { AI } from './ai'
+import { IAIProviderConfig } from '../../models/ai-provider'
+import {
+  deleteAIAPIKey,
+  getAIAPIKey,
+  getAIProviderConfig,
+  setAIAPIKey,
+  setAIProviderConfig,
+} from '../../lib/ai/ai-config'
 import {
   ICustomIntegration,
   TargetPathArgument,
@@ -169,6 +178,17 @@ interface IPreferencesState {
   readonly selectedTimeFormat?: TimeFormat
   readonly selectedNumberFormat?: INumberFormat
   readonly preferAbsoluteDates?: boolean
+  readonly aiProviderConfig: IAIProviderConfig
+  /**
+   * The API key as currently edited. Loaded from the credential store on mount
+   * and written back on save; empty means no key is stored.
+   */
+  readonly aiAPIKey: string
+  /**
+   * Whether the stored key has been read yet. Guards against a save that races
+   * the credential-store read from deleting a key the user never saw.
+   */
+  readonly aiAPIKeyLoaded: boolean
 }
 
 /**
@@ -235,7 +255,18 @@ export class Preferences extends React.Component<
       selectedTimeFormat: getTimeFormatPreference(),
       selectedNumberFormat: getNumberFormatPreference(),
       preferAbsoluteDates: getPreferAbsoluteDates(),
+      aiProviderConfig: getAIProviderConfig(),
+      aiAPIKey: '',
+      aiAPIKeyLoaded: false,
     }
+  }
+
+  public async componentDidMount() {
+    // The API key lives in the OS credential store, so it can only be read
+    // asynchronously - the pane renders with an empty field until it arrives.
+    const aiAPIKey = await getAIAPIKey(this.state.aiProviderConfig.provider)
+
+    this.setState({ aiAPIKey: aiAPIKey ?? '', aiAPIKeyLoaded: true })
   }
 
   public async componentWillMount() {
@@ -364,6 +395,10 @@ export class Preferences extends React.Component<
               <Octicon className="icon" symbol={octicons.accessibility} />
               Accessibility
             </span>
+            <span id={this.getTabId(PreferencesTab.AI)}>
+              <Octicon className="icon" symbol={octicons.copilot} />
+              AI
+            </span>
           </TabBar>
 
           {this.renderActiveTab()}
@@ -399,6 +434,9 @@ export class Preferences extends React.Component<
         break
       case PreferencesTab.Accessibility:
         suffix = 'accessibility'
+        break
+      case PreferencesTab.AI:
+        suffix = 'ai'
         break
       default:
         return assertNever(tab, `Unknown tab type: ${tab}`)
@@ -637,6 +675,16 @@ export class Preferences extends React.Component<
           />
         )
         break
+      case PreferencesTab.AI:
+        View = (
+          <AI
+            aiProviderConfig={this.state.aiProviderConfig}
+            aiAPIKey={this.state.aiAPIKey}
+            onAIProviderConfigChanged={this.onAIProviderConfigChanged}
+            onAIAPIKeyChanged={this.onAIAPIKeyChanged}
+          />
+        )
+        break
       default:
         return assertNever(index, `Unknown tab index: ${index}`)
     }
@@ -771,6 +819,14 @@ export class Preferences extends React.Component<
 
   private onPreferAbsoluteDatesChanged = (preferAbsoluteDates: boolean) => {
     this.setState({ preferAbsoluteDates })
+  }
+
+  private onAIProviderConfigChanged = (aiProviderConfig: IAIProviderConfig) => {
+    this.setState({ aiProviderConfig })
+  }
+
+  private onAIAPIKeyChanged = (aiAPIKey: string) => {
+    this.setState({ aiAPIKey })
   }
 
   private onUseCustomEditorChanged = (useCustomEditor: boolean) => {
@@ -945,6 +1001,20 @@ export class Preferences extends React.Component<
     await dispatcher.setConfirmCommitMessageOverrideSetting(
       this.state.confirmCommitMessageOverride
     )
+
+    setAIProviderConfig(this.state.aiProviderConfig)
+
+    // Skip the credential store entirely until the stored key has been read,
+    // so an early save can't clear a key the user hasn't seen yet.
+    if (this.state.aiAPIKeyLoaded) {
+      const { provider } = this.state.aiProviderConfig
+
+      if (this.state.aiAPIKey === '') {
+        await deleteAIAPIKey(provider)
+      } else {
+        await setAIAPIKey(provider, this.state.aiAPIKey)
+      }
+    }
 
     if (this.state.selectedExternalEditor) {
       await dispatcher.setExternalEditor(this.state.selectedExternalEditor)

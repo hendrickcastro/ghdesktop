@@ -879,6 +879,15 @@ export class Dispatcher {
   }
 
   /** Delete a repository folder. */
+  /**
+   * Move a folder, and everything inside it, under a new parent.
+   *
+   * @param newParentId The folder to nest under, or null for the top level
+   */
+  public moveFolder(id: number, newParentId: number | null): Promise<void> {
+    return this.appStore._moveFolder(id, newParentId)
+  }
+
   public deleteFolder(id: number): Promise<void> {
     return this.appStore._deleteFolder(id)
   }

@@ -12,6 +12,7 @@ import {
   getWindowsInstallerName,
   shouldMakeDelta,
   getUpdatesURL,
+  areUpdatesDisabled,
   isPublishable,
   getBundleSizes,
   getDistRoot,
@@ -97,7 +98,11 @@ function packageWindows() {
     setupMsi: getWindowsInstallerName(),
   }
 
-  if (shouldMakeDelta()) {
+  // Baking a remoteReleases URL into the installer lets Squirrel update the app
+  // straight from that feed. With upstream's feed that means this fork gets
+  // overwritten by vanilla GitHub Desktop moments after install, so leave it
+  // unset unless we have a feed of our own.
+  if (shouldMakeDelta() && !areUpdatesDisabled()) {
     const url = new URL(getUpdatesURL())
     // Make sure Squirrel.Windows isn't affected by partially or completely
     // disabled releases.
