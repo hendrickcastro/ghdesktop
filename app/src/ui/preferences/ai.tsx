@@ -15,10 +15,20 @@ import {
   getAIProviderPricingURL,
   getDefaultAIBaseURL,
   getDefaultAIModel,
+  getReferenceModelInfo,
   parseAIProvider,
+  providerReportsPricing,
   supportedAIProviders,
 } from '../../models/ai-provider'
-import { verifyAIProvider } from '../../lib/ai/custom-ai-client'
+import {
+  AIPriceSource,
+  IFetchedAIModel,
+  fetchAIModels,
+  verifyAIProvider,
+} from '../../lib/ai/custom-ai-client'
+
+/** How many rows of the price table to show before truncating. */
+const MaxPricingRows = 30
 
 interface IAIPreferencesProps {
   readonly aiProviderConfig: IAIProviderConfig
@@ -28,14 +38,42 @@ interface IAIPreferencesProps {
   readonly onAIAPIKeyChanged: (key: string) => void
 }
 
-type TestState =
+/** A model row, whether it came from the provider or from the bundled table. */
+interface IDisplayModel {
+  readonly id: string
+  readonly label: string
+  readonly inputPrice: number | null
+  readonly outputPrice: number | null
+  readonly recommended: boolean
+  /** Where the price came from, or null when no price is known. */
+  readonly priceSource: AIPriceSource | 'bundled' | null
+}
+
+type AsyncState =
   | { readonly kind: 'idle' }
-  | { readonly kind: 'testing' }
-  | { readonly kind: 'success' }
+  | { readonly kind: 'busy' }
+  | { readonly kind: 'success'; readonly message: string }
   | { readonly kind: 'error'; readonly message: string }
 
 interface IAIPreferencesState {
-  readonly testState: TestState
+  readonly testState: AsyncState
+  readonly modelsState: AsyncState
+  /** Models reported by the provider, or null before they've been loaded. */
+  readonly models: ReadonlyArray<IFetchedAIModel> | null
+}
+
+/** Cheapest first; models with no known price sort to the bottom. */
+function byPriceThenLabel(a: IDisplayModel, b: IDisplayModel): number {
+  if (a.inputPrice === null && b.inputPrice === null) {
+    return a.label.localeCompare(b.label)
+  }
+  if (a.inputPrice === null) {
+    return 1
+  }
+  if (b.inputPrice === null) {
+    return -1
+  }
+  return a.inputPrice - b.inputPrice || a.label.localeCompare(b.label)
 }
 
 export class AI extends React.Component<
@@ -44,7 +82,11 @@ export class AI extends React.Component<
 > {
   public constructor(props: IAIPreferencesProps) {
     super(props)
-    this.state = { testState: { kind: 'idle' } }
+    this.state = {
+      testState: { kind: 'idle' },
+      modelsState: { kind: 'idle' },
+      models: null,
+    }
   }
 
   private onEnabledChanged = (event: React.FormEvent<HTMLInputElement>) => {
@@ -61,9 +103,9 @@ export class AI extends React.Component<
       return
     }
 
-    // Model ids and endpoints are provider-specific, so carrying the previous
-    // provider's values over would leave the config pointing at a model that
-    // doesn't exist. Reset both to this provider's defaults.
+    // Model ids, endpoints, keys, and model lists are all provider-specific, so
+    // carrying any of them over would leave the pane describing the wrong
+    // service.
     this.props.onAIProviderConfigChanged({
       ...this.props.aiProviderConfig,
       provider,
@@ -71,7 +113,11 @@ export class AI extends React.Component<
       baseURL: '',
     })
     this.props.onAIAPIKeyChanged('')
-    this.setState({ testState: { kind: 'idle' } })
+    this.setState({
+      testState: { kind: 'idle' },
+      modelsState: { kind: 'idle' },
+      models: null,
+    })
   }
 
   private onModelChanged = (event: React.FormEvent<HTMLSelectElement>) => {
@@ -94,17 +140,94 @@ export class AI extends React.Component<
   }
 
   private onTestConnection = async () => {
-    this.setState({ testState: { kind: 'testing' } })
+    this.setState({ testState: { kind: 'busy' } })
 
     try {
       // Pass the in-flight key so the user can validate before saving.
       await verifyAIProvider(this.props.aiProviderConfig, this.props.aiAPIKey)
-      this.setState({ testState: { kind: 'success' } })
+      this.setState({
+        testState: {
+          kind: 'success',
+          message: `Connected — ${getAIProviderName(
+            this.props.aiProviderConfig.provider
+          )} accepted the key and the model.`,
+        },
+      })
     } catch (e) {
       this.setState({
         testState: { kind: 'error', message: (e as Error).message },
       })
     }
+  }
+
+  private onLoadModels = async () => {
+    const { provider } = this.props.aiProviderConfig
+    this.setState({ modelsState: { kind: 'busy' } })
+
+    try {
+      const models = await fetchAIModels(
+        this.props.aiProviderConfig,
+        this.props.aiAPIKey
+      )
+
+      const priced = models.filter(m => m.inputPrice !== null).length
+      const message = providerReportsPricing(provider)
+        ? `Loaded ${
+            models.length
+          } models with live prices from ${getAIProviderName(provider)}.`
+        : `Loaded ${models.length} models from ${getAIProviderName(
+            provider
+          )}.` +
+          (priced === 0
+            ? ' This provider does not publish prices through its API.'
+            : '')
+
+      this.setState({ models, modelsState: { kind: 'success', message } })
+    } catch (e) {
+      this.setState({
+        modelsState: { kind: 'error', message: (e as Error).message },
+      })
+    }
+  }
+
+  /**
+   * The model rows to show: the provider's own list once loaded, otherwise the
+   * small bundled list so the pane is usable before a key is entered.
+   */
+  private get displayModels(): ReadonlyArray<IDisplayModel> {
+    const { provider } = this.props.aiProviderConfig
+    const fetched = this.state.models
+
+    if (fetched === null) {
+      return getAIProviderModels(provider)
+        .map(m => ({
+          id: m.id,
+          label: m.label,
+          inputPrice: m.inputPrice,
+          outputPrice: m.outputPrice,
+          recommended: m.recommended === true,
+          priceSource: 'bundled' as const,
+        }))
+        .sort(byPriceThenLabel)
+    }
+
+    return fetched
+      .map(m => {
+        // The bundled table is the last resort: a price from the provider or the
+        // community catalogue always wins over one compiled into the app.
+        const reference = getReferenceModelInfo(provider, m.id)
+        const bundled = m.inputPrice === null && reference !== undefined
+
+        return {
+          id: m.id,
+          label: m.label,
+          inputPrice: m.inputPrice ?? reference?.inputPrice ?? null,
+          outputPrice: m.outputPrice ?? reference?.outputPrice ?? null,
+          recommended: reference?.recommended === true,
+          priceSource: bundled ? ('bundled' as const) : m.priceSource,
+        }
+      })
+      .sort(byPriceThenLabel)
   }
 
   public render() {
@@ -134,9 +257,12 @@ export class AI extends React.Component<
 
   private renderProviderSettings() {
     const { aiProviderConfig: config, aiAPIKey } = this.props
-    const models = getAIProviderModels(config.provider)
+    const models = this.displayModels
     const selectedModel =
       config.model === '' ? getDefaultAIModel(config.provider) : config.model
+    const busy =
+      this.state.testState.kind === 'busy' ||
+      this.state.modelsState.kind === 'busy'
 
     return (
       <>
@@ -177,13 +303,26 @@ export class AI extends React.Component<
           >
             {models.map(model => (
               <option key={model.id} value={model.id}>
-                {model.label} — {formatTokenPrice(model.inputPrice)} in /{' '}
-                {formatTokenPrice(model.outputPrice)} out
+                {model.label}
+                {model.inputPrice !== null && model.outputPrice !== null
+                  ? ` — ${formatTokenPrice(
+                      model.inputPrice
+                    )} in / ${formatTokenPrice(model.outputPrice)} out`
+                  : ''}
               </option>
             ))}
           </Select>
 
-          {this.renderPricingTable()}
+          <div className="ai-model-actions">
+            <Button onClick={this.onLoadModels} disabled={busy}>
+              {this.state.modelsState.kind === 'busy'
+                ? 'Loading models…'
+                : 'Load models from provider'}
+            </Button>
+          </div>
+          {this.renderState(this.state.modelsState)}
+
+          {this.renderPricingTable(models)}
         </div>
 
         <div className="advanced-section">
@@ -202,23 +341,21 @@ export class AI extends React.Component<
         <div className="advanced-section">
           <Button
             onClick={this.onTestConnection}
-            disabled={
-              aiAPIKey === '' || this.state.testState.kind === 'testing'
-            }
+            disabled={aiAPIKey === '' || busy}
           >
-            {this.state.testState.kind === 'testing'
+            {this.state.testState.kind === 'busy'
               ? 'Testing…'
               : 'Test connection'}
           </Button>
-          {this.renderTestResult()}
+          {this.renderState(this.state.testState)}
         </div>
       </>
     )
   }
 
-  private renderPricingTable() {
-    const { provider } = this.props.aiProviderConfig
-    const models = getAIProviderModels(provider)
+  private renderPricingTable(models: ReadonlyArray<IDisplayModel>) {
+    const rows = models.slice(0, MaxPricingRows)
+    const truncated = models.length - rows.length
 
     return (
       <div className="ai-model-pricing">
@@ -231,7 +368,7 @@ export class AI extends React.Component<
             </tr>
           </thead>
           <tbody>
-            {models.map(model => (
+            {rows.map(model => (
               <tr key={model.id}>
                 <td>
                   {model.label}
@@ -239,43 +376,75 @@ export class AI extends React.Component<
                     <span className="ai-model-recommended"> · recommended</span>
                   ) : null}
                 </td>
-                <td>{formatTokenPrice(model.inputPrice)}</td>
-                <td>{formatTokenPrice(model.outputPrice)}</td>
+                <td>
+                  {model.inputPrice === null
+                    ? '—'
+                    : formatTokenPrice(model.inputPrice)}
+                </td>
+                <td>
+                  {model.outputPrice === null
+                    ? '—'
+                    : formatTokenPrice(model.outputPrice)}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
-        <p className="git-settings-description">
-          Prices are per million tokens, in US dollars, and are reference values
-          — each provider sets its own and changes them independently of
-          Desktop. Check{' '}
-          <LinkButton uri={getAIProviderPricingURL(provider)}>
-            {getAIProviderName(provider)} pricing
-          </LinkButton>{' '}
-          for current rates. Commit messages send a diff and return a couple of
-          lines, so the cheapest model listed is usually the right choice.
-        </p>
+        {truncated > 0 ? (
+          <p className="git-settings-description">
+            Showing the {rows.length} cheapest of {models.length} models. The
+            full list is in the dropdown above.
+          </p>
+        ) : null}
+        {this.renderPricingNote()}
       </div>
     )
   }
 
-  private renderTestResult() {
-    const { testState } = this.state
+  private renderPricingNote() {
+    const { provider } = this.props.aiProviderConfig
+    const models = this.displayModels
+    const sources = new Set(
+      models.map(m => m.priceSource).filter(s => s !== null)
+    )
 
-    if (testState.kind === 'success') {
-      return (
-        <p className="git-settings-description">
-          Connected successfully —{' '}
-          {getAIProviderName(this.props.aiProviderConfig.provider)} accepted the
-          key and the model.
-        </p>
-      )
+    return (
+      <p className="git-settings-description">
+        Prices are per million tokens, in US dollars, cheapest first; a dash
+        means the price isn't known.{' '}
+        {this.state.models === null
+          ? 'Load the model list to see the models your key can actually use, with current prices.'
+          : ''}
+        {sources.has('provider')
+          ? `Prices come from ${getAIProviderName(provider)}'s own API. `
+          : ''}
+        {sources.has('community')
+          ? `${getAIProviderName(
+              provider
+            )} does not publish prices through its API, so these come from the community-maintained LiteLLM catalogue, fetched just now rather than compiled into the app. `
+          : ''}
+        {sources.has('bundled')
+          ? 'Some figures come from a small table bundled with the app and can go out of date. '
+          : ''}
+        Check{' '}
+        <LinkButton uri={getAIProviderPricingURL(provider)}>
+          {getAIProviderName(provider)} pricing
+        </LinkButton>{' '}
+        for the authoritative rates. Commit messages send a diff and return a
+        couple of lines, so a cheap model is usually the right choice.
+      </p>
+    )
+  }
+
+  private renderState(state: AsyncState) {
+    if (state.kind === 'success') {
+      return <p className="git-settings-description">{state.message}</p>
     }
 
-    if (testState.kind === 'error') {
+    if (state.kind === 'error') {
       return (
         <div className="setting-hint-warning">
-          <span className="warning-icon">⚠️</span> {testState.message}
+          <span className="warning-icon">⚠️</span> {state.message}
         </div>
       )
     }

@@ -206,6 +206,26 @@ export function formatTokenPrice(pricePerMillion: number): string {
   return `$${pricePerMillion.toFixed(decimals)}`
 }
 
+/**
+ * The bundled entry for a model id, if there is one.
+ *
+ * Used to fill in a price for providers whose API doesn't report one, and to
+ * carry the "recommended" mark onto a live model list.
+ */
+export function getReferenceModelInfo(
+  provider: AIProvider,
+  modelId: string
+): IAIModelInfo | undefined {
+  return models[provider].find(m => m.id === modelId)
+}
+
+/** Whether the provider reports prices through its API. */
+export function providerReportsPricing(provider: AIProvider): boolean {
+  // OpenRouter publishes per-token prices for its whole catalogue; OpenAI,
+  // Anthropic, and Google all return model metadata with no cost fields.
+  return provider === AIProvider.OpenRouter
+}
+
 export function parseAIProvider(value: string | null): AIProvider | null {
   return supportedAIProviders.find(p => p === value) ?? null
 }

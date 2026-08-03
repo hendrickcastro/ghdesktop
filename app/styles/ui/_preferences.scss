@@ -272,4 +272,49 @@
     position: absolute;
     width: 100px;
   }
+
+  .ai-model-pricing {
+    margin-top: var(--spacing);
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: var(--font-size-sm);
+      border: var(--base-border);
+      border-radius: var(--border-radius);
+      // Without this the square cell borders poke through the rounded corners.
+      overflow: hidden;
+    }
+
+    th,
+    td {
+      padding: var(--spacing-half);
+      text-align: left;
+      border-bottom: var(--base-border);
+    }
+
+    th {
+      font-weight: var(--font-weight-semibold);
+      color: var(--text-secondary-color);
+    }
+
+    // The two price columns read as a column of figures: right-aligned, with
+    // tabular digits so the decimal points line up between rows, and only as
+    // wide as their content so the model name keeps the remaining space.
+    th:not(:first-child),
+    td:not(:first-child) {
+      width: 1%;
+      text-align: right;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+
+    tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .ai-model-recommended {
+      color: var(--text-secondary-color);
+    }
+  }
 }

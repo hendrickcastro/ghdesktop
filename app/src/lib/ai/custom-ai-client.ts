@@ -173,6 +173,268 @@ async function sendGemini(
   return text
 }
 
+/** Where a price came from, so the UI can attribute it honestly. */
+export type AIPriceSource = 'provider' | 'community'
+
+/** A model as reported by the provider itself, rather than a hardcoded guess. */
+export interface IFetchedAIModel {
+  readonly id: string
+  readonly label: string
+  /**
+   * USD per million input tokens. Null means "unknown", never "free".
+   */
+  readonly inputPrice: number | null
+  readonly outputPrice: number | null
+  readonly priceSource: AIPriceSource | null
+}
+
+/**
+ * LiteLLM's price catalogue - the only machine-readable source of current rates
+ * that covers OpenAI, Anthropic, and Google, none of which expose pricing
+ * through their own APIs. Community-maintained rather than official, which is
+ * why the UI attributes it and still links to each provider's pricing page.
+ */
+const PriceCatalogURL =
+  'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json'
+
+interface IPriceEntry {
+  readonly inputPrice: number | null
+  readonly outputPrice: number | null
+}
+
+/**
+ * Fetched once per session - it's ~1.7MB, and prices don't move within a
+ * sitting. The promise itself is cached so concurrent callers share one request.
+ */
+let priceCatalog: Promise<Map<string, IPriceEntry>> | null = null
+
+function toPerMillion(costPerToken: unknown): number | null {
+  const parsed = Number.parseFloat(String(costPerToken))
+  return Number.isFinite(parsed) ? parsed * 1_000_000 : null
+}
+
+function fetchPriceCatalog(): Promise<Map<string, IPriceEntry>> {
+  if (priceCatalog === null) {
+    priceCatalog = (async () => {
+      const response = await fetch(PriceCatalogURL)
+
+      if (!response.ok) {
+        throw new Error(
+          `Price catalogue request failed (${response.status} ${response.statusText})`
+        )
+      }
+
+      const body = await response.json()
+      const catalog = new Map<string, IPriceEntry>()
+
+      for (const [key, value] of Object.entries<any>(body)) {
+        const entry = {
+          inputPrice: toPerMillion(value?.input_cost_per_token),
+          outputPrice: toPerMillion(value?.output_cost_per_token),
+        }
+
+        if (entry.inputPrice === null && entry.outputPrice === null) {
+          continue
+        }
+
+        catalog.set(key.toLowerCase(), entry)
+
+        // Catalogue keys are sometimes namespaced ("vertex_ai/gemini-2.0-flash")
+        // while provider APIs return the bare id, so index both spellings.
+        const bare = key.slice(key.lastIndexOf('/') + 1).toLowerCase()
+        if (!catalog.has(bare)) {
+          catalog.set(bare, entry)
+        }
+      }
+
+      return catalog
+    })().catch(e => {
+      // Don't cache a failure - a later attempt should be able to retry.
+      priceCatalog = null
+      throw e
+    })
+  }
+
+  return priceCatalog
+}
+
+function lookupPrice(
+  catalog: Map<string, IPriceEntry>,
+  modelId: string
+): IPriceEntry | undefined {
+  const id = modelId.toLowerCase()
+
+  return (
+    catalog.get(id) ??
+    // Anthropic and Google both ship dated snapshots ("...-20250929") that the
+    // catalogue lists under the undated alias.
+    catalog.get(id.replace(/-\d{8}$/, '')) ??
+    catalog.get(id.replace(/-latest$/, ''))
+  )
+}
+
+/**
+ * Fills in prices from the community catalogue for models whose provider didn't
+ * report one.
+ *
+ * Best effort by design: if the catalogue is unreachable the models still load,
+ * just without prices. Failing the whole list over a missing price would be
+ * worse than showing a dash.
+ */
+async function withCatalogPrices(
+  models: ReadonlyArray<IFetchedAIModel>
+): Promise<ReadonlyArray<IFetchedAIModel>> {
+  let catalog: Map<string, IPriceEntry>
+
+  try {
+    catalog = await fetchPriceCatalog()
+  } catch (e) {
+    log.warn('Could not fetch the AI model price catalogue', e)
+    return models
+  }
+
+  return models.map(model => {
+    if (model.inputPrice !== null) {
+      return model
+    }
+
+    const price = lookupPrice(catalog, model.id)
+
+    return price === undefined
+      ? model
+      : {
+          ...model,
+          inputPrice: price.inputPrice,
+          outputPrice: price.outputPrice,
+          priceSource: 'community' as const,
+        }
+  })
+}
+
+/** OpenRouter quotes per-token strings; the UI works in per-million. */
+function perMillion(pricePerToken: unknown): number | null {
+  const parsed = Number.parseFloat(String(pricePerToken))
+  return Number.isFinite(parsed) ? parsed * 1_000_000 : null
+}
+
+/** Endpoints that aren't chat models and would only clutter the list. */
+function isChatModelId(id: string): boolean {
+  return !/embedding|whisper|tts|dall-e|moderation|transcribe|image/i.test(id)
+}
+
+async function fetchJSON(
+  provider: AIProvider,
+  url: string,
+  headers: Record<string, string>
+): Promise<any> {
+  const response = await fetch(url, { headers })
+
+  if (!response.ok) {
+    throw await failedRequestError(provider, response)
+  }
+
+  return response.json()
+}
+
+/**
+ * Asks the provider which models it offers.
+ *
+ * Only OpenRouter returns prices, so for every other provider the price fields
+ * come back null and the caller is responsible for not implying a cost it
+ * doesn't know.
+ */
+export async function fetchAIModels(
+  config: IAIProviderConfig,
+  apiKeyOverride?: string
+): Promise<ReadonlyArray<IFetchedAIModel>> {
+  const base = getEffectiveAIBaseURL(config)
+  const { provider } = config
+
+  // OpenRouter's catalogue is public, so it works before a key is entered.
+  if (provider === AIProvider.OpenRouter) {
+    const body = await fetchJSON(provider, `${base}/models`, {})
+
+    return (body?.data ?? [])
+      .filter((m: any) => typeof m?.id === 'string')
+      .map((m: any) => ({
+        id: m.id,
+        label: typeof m.name === 'string' ? m.name : m.id,
+        inputPrice: perMillion(m?.pricing?.prompt),
+        outputPrice: perMillion(m?.pricing?.completion),
+        priceSource: 'provider' as const,
+      }))
+  }
+
+  const apiKey =
+    apiKeyOverride !== undefined && apiKeyOverride !== ''
+      ? apiKeyOverride
+      : await getAIAPIKey(provider)
+
+  if (apiKey === null || apiKey === '') {
+    throw new Error('Enter an API key first, then load the model list.')
+  }
+
+  if (provider === AIProvider.Anthropic) {
+    const body = await fetchJSON(provider, `${base}/models`, {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    })
+
+    return withCatalogPrices(
+      (body?.data ?? [])
+        .filter((m: any) => typeof m?.id === 'string')
+        .map((m: any) => ({
+          id: m.id,
+          label: typeof m.display_name === 'string' ? m.display_name : m.id,
+          inputPrice: null,
+          outputPrice: null,
+          priceSource: null,
+        }))
+    )
+  }
+
+  if (provider === AIProvider.Gemini) {
+    const body = await fetchJSON(provider, `${base}/models`, {
+      'x-goog-api-key': apiKey,
+    })
+
+    const geminiModels = (body?.models ?? [])
+      .filter((m: any) =>
+        (m?.supportedGenerationMethods ?? []).includes('generateContent')
+      )
+      .map((m: any) => {
+        // Gemini ids arrive namespaced, e.g. "models/gemini-2.0-flash".
+        const id = String(m.name).replace(/^models\//, '')
+        return {
+          id,
+          label: typeof m.displayName === 'string' ? m.displayName : id,
+          inputPrice: null,
+          outputPrice: null,
+          priceSource: null,
+        }
+      })
+
+    return withCatalogPrices(geminiModels)
+  }
+
+  // OpenAI and anything else speaking its dialect.
+  const body = await fetchJSON(provider, `${base}/models`, {
+    authorization: `Bearer ${apiKey}`,
+  })
+
+  return withCatalogPrices(
+    (body?.data ?? [])
+      .filter((m: any) => typeof m?.id === 'string' && isChatModelId(m.id))
+      .map((m: any) => ({
+        id: m.id,
+        label: m.id,
+        inputPrice: null,
+        outputPrice: null,
+        priceSource: null,
+      }))
+  )
+}
+
 /**
  * Dispatches a prompt to whichever provider the user configured.
  *
