@@ -178,6 +178,23 @@ function packageApp() {
     `Unable to find Assets.car at ${assetsCarPath}`
   )
 
+  // When ad-hoc signing (no Apple developer credentials), osx-sign leaves the
+  // nested Electron Framework with a mismatched signature and dyld refuses to
+  // load it ("different Team IDs"). Deep re-signing the finished bundle with
+  // the ad-hoc identity makes every nested binary consistent.
+  const adhocResign = (appPaths: string | string[]) => {
+    if (process.platform === 'darwin' && osxNotarize === undefined) {
+      for (const appPath of Array.isArray(appPaths) ? appPaths : [appPaths]) {
+        const bundle = join(appPath, `${getProductName()}.app`)
+        if (existsSync(bundle)) {
+          console.log(`Ad-hoc re-signing ${bundle}…`)
+          cp.execSync(`codesign --force --deep --sign - "${bundle}"`)
+        }
+      }
+    }
+    return appPaths
+  }
+
   return packager({
     name: getExecutableName(),
     platform: toPackagePlatform(process.platform),
@@ -208,13 +225,18 @@ function packageApp() {
         hardenedRuntime: true,
         entitlements: entitlementsPath,
       }),
-      type: isPublishableBuild ? 'distribution' : 'development',
-      // For development, we will use '-' as the identifier so that codesign
+      type:
+        isPublishableBuild && osxNotarize !== undefined
+          ? 'distribution'
+          : 'development',
+      // For development (or when no Apple developer credentials are
+      // available), we will use '-' as the identifier so that codesign
       // will sign the app to run locally. We need to disable 'identity-validation'
       // or otherwise it will replace '-' with one of the regular codesigning
       // identities in our system.
-      identity: isDevelopmentBuild ? '-' : undefined,
-      identityValidation: !isDevelopmentBuild,
+      identity:
+        isDevelopmentBuild || osxNotarize === undefined ? '-' : undefined,
+      identityValidation: !isDevelopmentBuild && osxNotarize !== undefined,
     },
     osxNotarize,
     protocols: [
@@ -239,7 +261,7 @@ function packageApp() {
       ProductName: getProductName(),
       InternalName: getProductName(),
     },
-  })
+  }).then(adhocResign)
 }
 
 function removeAndCopy(source: string, destination: string) {
