@@ -18,6 +18,8 @@ import { AuthorInput } from '../lib/author-input/author-input'
 import { FocusContainer } from '../lib/focus-container'
 import { Octicon, OcticonSymbolVariant } from '../octicons'
 import * as octicons from '../octicons/octicons.generated'
+import { getAIProviderConfig, isCustomAIEnabled } from '../../lib/ai/ai-config'
+import { getAIProviderName } from '../../models/ai-provider'
 import { Author, UnknownAuthor, isKnownAuthor } from '../../models/author'
 import { IMenuItem } from '../../lib/menu-item'
 import { Commit, ICommitContext } from '../../models/commit'
@@ -872,6 +874,21 @@ export class CommitMessage extends React.Component<
     }
   }
 
+  /**
+   * The name of the service the generate button will actually call.
+   *
+   * Reads the provider config directly rather than taking a prop, because the
+   * label has to agree with the routing decision in
+   * AppStore._generateCommitMessage - which reads the same config. Labelling
+   * this "Copilot" while the request goes to a third party would misrepresent
+   * where the user's diff is being sent.
+   */
+  private get commitMessageGeneratorName(): string {
+    return isCustomAIEnabled()
+      ? getAIProviderName(getAIProviderConfig().provider)
+      : 'Copilot'
+  }
+
   private getGenerateCommitMessageMenuItem(): IMenuItem | null {
     const {
       accounts,
@@ -894,8 +911,8 @@ export class CommitMessage extends React.Component<
 
     return {
       label: __DARWIN__
-        ? 'Generate Commit Message with Copilot'
-        : 'Generate commit message with Copilot',
+        ? `Generate Commit Message with ${this.commitMessageGeneratorName}`
+        : `Generate commit message with ${this.commitMessageGeneratorName}`,
       action: () => {
         const { commitMessage } = this.state
         onGenerateCommitMessage(
@@ -1002,7 +1019,7 @@ export class CommitMessage extends React.Component<
 
     const ariaLabel = isGeneratingCommitMessage
       ? 'Generating commit details…'
-      : 'Generate commit message with Copilot' +
+      : `Generate commit message with ${this.commitMessageGeneratorName}` +
         (noChangesAvailable
           ? '. Files must be selected to generate a commit message.'
           : '')
