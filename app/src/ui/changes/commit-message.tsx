@@ -889,6 +889,15 @@ export class CommitMessage extends React.Component<
       : 'Copilot'
   }
 
+  /**
+   * Copilot's mark stands for Copilot; a generic sparkle stands for whatever
+   * provider the user wired up. Showing Copilot's logo for a request going to
+   * OpenAI would misattribute it.
+   */
+  private get commitMessageGeneratorIcon() {
+    return isCustomAIEnabled() ? octicons.sparkleFill : octicons.copilot
+  }
+
   private getGenerateCommitMessageMenuItem(): IMenuItem | null {
     const {
       accounts,
@@ -1043,7 +1052,7 @@ export class CommitMessage extends React.Component<
               isGeneratingCommitMessage ? 'Generating commit details…' : ''
             }
           />
-          <Octicon symbol={octicons.copilot} />
+          <Octicon symbol={this.commitMessageGeneratorIcon} />
           {shouldShowGenerateCommitMessageCallOut && (
             <span className="call-to-action-bubble">New</span>
           )}

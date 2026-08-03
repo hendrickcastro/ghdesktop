@@ -276,14 +276,28 @@
   .ai-model-pricing {
     margin-top: var(--spacing);
 
+    // The model list can run to hundreds of entries. Bound it here and let it
+    // scroll in place - the Preferences dialog only gains a scrollbar of its own
+    // below 550px of viewport height, so an unbounded table pushes its own
+    // content off the bottom of the screen with no way to reach it.
+    .ai-model-table {
+      max-height: 200px;
+      overflow-y: auto;
+      border: var(--base-border);
+      border-radius: var(--border-radius);
+    }
+
     table {
       width: 100%;
       border-collapse: collapse;
       font-size: var(--font-size-sm);
-      border: var(--base-border);
-      border-radius: var(--border-radius);
-      // Without this the square cell borders poke through the rounded corners.
-      overflow: hidden;
+    }
+
+    // Keeps the column headings visible while scrolling the list.
+    thead th {
+      position: sticky;
+      top: 0;
+      background-color: var(--background-color);
     }
 
     th,

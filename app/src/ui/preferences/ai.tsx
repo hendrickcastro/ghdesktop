@@ -6,6 +6,7 @@ import { TextBox } from '../lib/text-box'
 import { LinkButton } from '../lib/link-button'
 import { Button } from '../lib/button'
 import {
+  AIProvider,
   IAIProviderConfig,
   formatTokenPrice,
   getAIProviderKeyLabel,
@@ -27,7 +28,12 @@ import {
   verifyAIProvider,
 } from '../../lib/ai/custom-ai-client'
 
-/** How many rows of the price table to show before truncating. */
+/**
+ * How many rows of the price table to build.
+ *
+ * The table scrolls inside its own bounded container, so this only caps how much
+ * is rendered - it does not affect the dialog's height.
+ */
 const MaxPricingRows = 30
 
 interface IAIPreferencesProps {
@@ -89,6 +95,46 @@ export class AI extends React.Component<
     }
   }
 
+  /**
+   * The provider whose list we've already tried to load, so a failed attempt
+   * isn't retried on every render.
+   */
+  private autoLoadedFor: AIProvider | null = null
+
+  public componentDidMount() {
+    this.maybeAutoLoadModels()
+  }
+
+  public componentDidUpdate() {
+    // The stored key arrives asynchronously from the credential store, so the
+    // first render usually has nothing to authenticate with.
+    this.maybeAutoLoadModels()
+  }
+
+  /**
+   * Loads the model list without waiting for the user to ask.
+   *
+   * Showing the small bundled list until someone finds the button meant the pane
+   * offered two stale models when the provider has hundreds.
+   */
+  private maybeAutoLoadModels() {
+    const { aiProviderConfig: config, aiAPIKey } = this.props
+
+    if (!config.enabled || this.autoLoadedFor === config.provider) {
+      return
+    }
+
+    // OpenRouter's catalogue is public; everyone else needs the key. The length
+    // check keeps this from firing on the first character of a key being typed,
+    // which would spend the one attempt on a request that can't succeed.
+    if (config.provider !== AIProvider.OpenRouter && aiAPIKey.length < 20) {
+      return
+    }
+
+    this.autoLoadedFor = config.provider
+    this.onLoadModels()
+  }
+
   private onEnabledChanged = (event: React.FormEvent<HTMLInputElement>) => {
     this.props.onAIProviderConfigChanged({
       ...this.props.aiProviderConfig,
@@ -113,6 +159,7 @@ export class AI extends React.Component<
       baseURL: '',
     })
     this.props.onAIAPIKeyChanged('')
+    this.autoLoadedFor = null
     this.setState({
       testState: { kind: 'idle' },
       modelsState: { kind: 'idle' },
@@ -359,37 +406,44 @@ export class AI extends React.Component<
 
     return (
       <div className="ai-model-pricing">
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">Model</th>
-              <th scope="col">Input</th>
-              <th scope="col">Output</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(model => (
-              <tr key={model.id}>
-                <td>
-                  {model.label}
-                  {model.recommended ? (
-                    <span className="ai-model-recommended"> · recommended</span>
-                  ) : null}
-                </td>
-                <td>
-                  {model.inputPrice === null
-                    ? '—'
-                    : formatTokenPrice(model.inputPrice)}
-                </td>
-                <td>
-                  {model.outputPrice === null
-                    ? '—'
-                    : formatTokenPrice(model.outputPrice)}
-                </td>
+        {/* Bounded and scrollable: a long model list must not grow the
+            Preferences dialog past the bottom of the screen. */}
+        <div className="ai-model-table">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Model</th>
+                <th scope="col">Input</th>
+                <th scope="col">Output</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map(model => (
+                <tr key={model.id}>
+                  <td>
+                    {model.label}
+                    {model.recommended ? (
+                      <span className="ai-model-recommended">
+                        {' '}
+                        · recommended
+                      </span>
+                    ) : null}
+                  </td>
+                  <td>
+                    {model.inputPrice === null
+                      ? '—'
+                      : formatTokenPrice(model.inputPrice)}
+                  </td>
+                  <td>
+                    {model.outputPrice === null
+                      ? '—'
+                      : formatTokenPrice(model.outputPrice)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         {truncated > 0 ? (
           <p className="git-settings-description">
             Showing the {rows.length} cheapest of {models.length} models. The
