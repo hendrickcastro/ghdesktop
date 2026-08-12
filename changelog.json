@@ -1,5 +1,11 @@
 {
   "releases": {
+    "3.5.11": [
+      "[Added] Check for Updates in the app menu, and automatic updates from this fork's own GitHub releases - downloaded in the background and installed when you quit",
+      "[Added] Commit message detail levels for your own AI provider - Concise (default), Detailed, or Thorough - in Preferences > AI",
+      "[Added] install.sh for macOS, which installs to Applications and clears the quarantine flag Gatekeeper blocks ad-hoc signed builds with",
+      "[Added] Release workflow that builds the macOS DMG and the Windows installers from a ghknwr-* tag and publishes them"
+    ],
     "3.5.10": [
       "[Fixed] Newer OpenAI models such as gpt-5.6-luna no longer fail with 'Unsupported parameter: max_tokens'"
     ],
