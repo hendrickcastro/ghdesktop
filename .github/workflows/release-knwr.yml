@@ -1,0 +1,285 @@
+name: Release KNWR
+
+# Builds and publishes a release of this fork from a tag.
+#
+# The app updates itself from the releases this produces (see
+# app/src/main-process/github-updater.ts), which is why the asset names matter:
+# the updater picks an asset by architecture and extension, and the version it
+# compares against comes from the tag. Push a `ghknwr-<version>` tag and this
+# takes care of the rest.
+on:
+  push:
+    tags:
+      - 'ghknwr-*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing ghknwr-* tag to build and release'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: 24.11.1
+
+jobs:
+  create-release:
+    name: Create draft release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Resolve tag and version
+        id: version
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          # Everything after the last dash is the version - the same rule the
+          # updater applies when it reads the tag back.
+          VERSION="${TAG##*-}"
+
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "Tag '$TAG' doesn't end in a version the updater can parse." >&2
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Write release notes
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Quoted heredoc so backticks stay backticks; the placeholders are
+          # filled in afterwards.
+          cat <<'NOTES' > notes.md
+          ## GitHub Desktop KNWR __VERSION__
+
+          ### Install
+
+          **macOS (Apple Silicon) — one command:**
+
+          ```sh
+          curl -sL https://raw.githubusercontent.com/__REPO__/__TAG__/install.sh | bash
+          ```
+
+          Installs to /Applications, clears the macOS quarantine flag, and opens the app.
+
+          Opening `GitHubDesktopKNWR-arm64.dmg` and dragging the app across works too,
+          but macOS will refuse the first launch with *"Apple could not verify GitHub
+          Desktop KNWR.app is free of malware"*. These builds are ad-hoc signed - there
+          is no Apple developer account behind them to notarize with - so clear the
+          quarantine flag once and it opens normally from then on:
+
+          ```sh
+          xattr -cr "/Applications/GitHub Desktop KNWR.app"
+          ```
+
+          **Windows x64.** Run `GitHubDesktopKNWRSetup-x64.exe` (or the `.msi`).
+
+          ### Updates
+
+          Later versions install themselves: the app checks this repository's releases
+          on launch and every four hours, downloads what it finds, and swaps itself out
+          when you quit. **Check for Updates…** in the app menu does it on demand.
+          NOTES
+
+          sed -i "s|__VERSION__|$VERSION|g; s|__REPO__|$REPO|g; s|__TAG__|$TAG|g" notes.md
+          cat notes.md
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Reruns of a failed build should reuse the draft rather than fail.
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "Release $TAG already exists, reusing it."
+            exit 0
+          fi
+
+          gh release create "$TAG" \
+            --repo "$REPO" \
+            --title "GitHub Desktop KNWR $VERSION" \
+            --draft \
+            --notes-file notes.md
+
+  build-macos:
+    name: Build macOS (arm64)
+    needs: [create-release]
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.create-release.outputs.tag }}
+          submodules: recursive
+
+      - uses: ./.github/actions/setup-ci-environment
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          arch: arm64
+
+      - name: Set the app version from the tag
+        env:
+          VERSION: ${{ needs.create-release.outputs.version }}
+        run: |
+          # Keeps About, and the version the updater compares against, in step
+          # with the tag being released.
+          node -e "
+            const fs = require('fs')
+            const path = 'app/package.json'
+            const pkg = JSON.parse(fs.readFileSync(path, 'utf8'))
+            pkg.version = process.env.VERSION
+            fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n')
+          "
+          node -p "require('./app/package.json').version"
+
+      - name: Build production app
+        run: yarn build:prod
+        env:
+          RELEASE_CHANNEL: production
+          npm_config_arch: arm64
+          TARGET_ARCH: arm64
+          DESKTOP_UPDATES_GITHUB_REPO: ${{ github.repository }}
+          DESKTOP_OAUTH_CLIENT_ID: ${{ secrets.DESKTOP_OAUTH_CLIENT_ID }}
+          DESKTOP_OAUTH_CLIENT_SECRET:
+            ${{ secrets.DESKTOP_OAUTH_CLIENT_SECRET }}
+
+      - name: Package app
+        run: yarn package
+        env:
+          RELEASE_CHANNEL: production
+          npm_config_arch: arm64
+          TARGET_ARCH: arm64
+
+      - name: Build DMG and name the assets
+        run: |
+          set -euo pipefail
+
+          APP=$(ls -d dist/*/*.app | head -1)
+          echo "Packaging $APP"
+
+          # Ad-hoc signed builds can come out of packaging with a nested
+          # framework whose signature doesn't match the bundle's, which dyld
+          # refuses to load. Re-signing the whole thing makes it consistent.
+          codesign --force --deep --sign - "$APP"
+          xattr -rc "$APP"
+
+          DMG="dist/GitHubDesktopKNWR-arm64.dmg"
+          STAGING="dist/dmg-staging"
+
+          rm -rf "$STAGING" "$DMG"
+          mkdir -p "$STAGING"
+          cp -R "$APP" "$STAGING/"
+          # The symlink is what makes the disk image a drag-and-drop installer.
+          ln -s /Applications "$STAGING/Applications"
+
+          hdiutil create -volname "GitHub Desktop KNWR" \
+            -srcfolder "$STAGING" \
+            -ov -format UDBZ \
+            "$DMG"
+
+          rm -rf "$STAGING"
+
+          # yarn package writes a zip whose name carries spaces. The updater
+          # prefers a zip over a disk image - one ditto, nothing to mount - so
+          # rename it to something that survives a URL.
+          ZIP=$(ls dist/*.zip | head -1)
+          mv "$ZIP" dist/GitHubDesktopKNWR-arm64.zip
+
+          ls -lh "$DMG" dist/GitHubDesktopKNWR-arm64.zip
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.create-release.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh release upload "$TAG" \
+            dist/GitHubDesktopKNWR-arm64.dmg \
+            dist/GitHubDesktopKNWR-arm64.zip \
+            --repo "$REPO" --clobber
+
+  build-windows:
+    name: Build Windows (x64)
+    needs: [create-release]
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.create-release.outputs.tag }}
+          submodules: recursive
+
+      - uses: ./.github/actions/setup-ci-environment
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          arch: x64
+
+      - name: Set the app version from the tag
+        shell: bash
+        env:
+          VERSION: ${{ needs.create-release.outputs.version }}
+        run: |
+          node -e "
+            const fs = require('fs')
+            const path = 'app/package.json'
+            const pkg = JSON.parse(fs.readFileSync(path, 'utf8'))
+            pkg.version = process.env.VERSION
+            fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n')
+          "
+          node -p "require('./app/package.json').version"
+
+      - name: Build production app
+        run: yarn build:prod
+        env:
+          RELEASE_CHANNEL: production
+          npm_config_arch: x64
+          TARGET_ARCH: x64
+          DESKTOP_UPDATES_GITHUB_REPO: ${{ github.repository }}
+          DESKTOP_OAUTH_CLIENT_ID: ${{ secrets.DESKTOP_OAUTH_CLIENT_ID }}
+          DESKTOP_OAUTH_CLIENT_SECRET:
+            ${{ secrets.DESKTOP_OAUTH_CLIENT_SECRET }}
+
+      - name: Package app
+        run: yarn package
+        env:
+          RELEASE_CHANNEL: production
+          npm_config_arch: x64
+          TARGET_ARCH: x64
+
+      - name: Upload to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.create-release.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          ls -lh dist/*Setup*
+
+          gh release upload "$TAG" \
+            dist/GitHubDesktopKNWRSetup-x64.exe \
+            dist/GitHubDesktopKNWRSetup-x64.msi \
+            --repo "$REPO" --clobber
+
+  publish-release:
+    name: Publish release
+    needs: [create-release, build-macos, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Undraft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.create-release.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh release edit "$TAG" --repo "$REPO" --draft=false --latest

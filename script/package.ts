@@ -24,7 +24,6 @@ import { existsSync, rmSync, writeFileSync } from 'fs'
 import { getVersion } from '../app/package-info'
 import { rename } from 'fs/promises'
 import { join } from 'path'
-import { assertNonNullable } from '../app/src/lib/fatal-error'
 
 const distPath = getDistPath()
 const productName = getProductName()
@@ -110,24 +109,27 @@ function packageWindows() {
     options.remoteReleases = url.toString()
   }
 
+  // Azure Code Signing runs on GitHub's own certificate, which a fork building
+  // in its own Actions has no access to. Mirror what macOS packaging does when
+  // Apple credentials are missing and ship an unsigned installer, rather than
+  // failing the build over a certificate we were never going to have.
+  const acsPath =
+    process.env.RUNNER_TEMP === undefined
+      ? null
+      : join(process.env.RUNNER_TEMP, 'acs')
+  const dlibPath =
+    acsPath === null
+      ? null
+      : join(acsPath, 'bin', 'x64', 'Azure.CodeSigning.Dlib.dll')
+
   if (isGitHubActions() && isPublishable()) {
-    assertNonNullable(process.env.RUNNER_TEMP, 'Missing RUNNER_TEMP env var')
-
-    const acsPath = join(process.env.RUNNER_TEMP, 'acs')
-    const dlibPath = join(acsPath, 'bin', 'x64', 'Azure.CodeSigning.Dlib.dll')
-
-    assertExistsSync(dlibPath)
-
-    const metadataPath = join(acsPath, 'metadata.json')
-    const acsMetadata = {
-      Endpoint: 'https://wus3.codesigning.azure.net/',
-      CodeSigningAccountName: 'GitHubInc',
-      CertificateProfileName: 'GitHubInc',
-      CorrelationId: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+    if (acsPath === null || dlibPath === null || !existsSync(dlibPath)) {
+      console.log(
+        'Azure Code Signing is not set up for this build; packaging an unsigned installer.'
+      )
+    } else {
+      options.signWithParams = buildSignWithParams(acsPath, dlibPath)
     }
-    writeFileSync(metadataPath, JSON.stringify(acsMetadata))
-
-    options.signWithParams = `/v /fd SHA256 /tr "http://timestamp.acs.microsoft.com" /td SHA256 /dlib "${dlibPath}" /dmdf "${metadataPath}"`
   }
 
   console.log('Packaging for Windows…')
@@ -154,4 +156,20 @@ function packageWindows() {
       console.error(`Error packaging: ${e}`)
       process.exit(1)
     })
+}
+
+/** The signtool arguments that sign the installer with GitHub's certificate. */
+function buildSignWithParams(acsPath: string, dlibPath: string): string {
+  assertExistsSync(dlibPath)
+
+  const metadataPath = join(acsPath, 'metadata.json')
+  const acsMetadata = {
+    Endpoint: 'https://wus3.codesigning.azure.net/',
+    CodeSigningAccountName: 'GitHubInc',
+    CertificateProfileName: 'GitHubInc',
+    CorrelationId: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+  }
+  writeFileSync(metadataPath, JSON.stringify(acsMetadata))
+
+  return `/v /fd SHA256 /tr "http://timestamp.acs.microsoft.com" /td SHA256 /dlib "${dlibPath}" /dmdf "${metadataPath}"`
 }
