@@ -9,6 +9,59 @@ export enum AIProvider {
   OpenRouter = 'openrouter',
 }
 
+/**
+ * How much the generated commit message should say about the diff.
+ *
+ * Concise is what Desktop has always produced, and stays the default: a title
+ * plus a description only when the title doesn't cover it. The longer levels
+ * cost more output tokens per generation, which is why this is opt-in.
+ */
+export enum AICommitMessageDetail {
+  Concise = 'concise',
+  Detailed = 'detailed',
+  Thorough = 'thorough',
+}
+
+export const supportedAICommitMessageDetails: ReadonlyArray<AICommitMessageDetail> =
+  [
+    AICommitMessageDetail.Concise,
+    AICommitMessageDetail.Detailed,
+    AICommitMessageDetail.Thorough,
+  ]
+
+export function getAICommitMessageDetailLabel(
+  detail: AICommitMessageDetail
+): string {
+  switch (detail) {
+    case AICommitMessageDetail.Concise:
+      return 'Concise (default)'
+    case AICommitMessageDetail.Detailed:
+      return 'Detailed'
+    case AICommitMessageDetail.Thorough:
+      return 'Thorough'
+  }
+}
+
+/** One line on what the level produces, so the choice isn't a guess. */
+export function getAICommitMessageDetailDescription(
+  detail: AICommitMessageDetail
+): string {
+  switch (detail) {
+    case AICommitMessageDetail.Concise:
+      return 'A summary line, and a short description only when the title needs one.'
+    case AICommitMessageDetail.Detailed:
+      return 'A summary line plus a description with a bullet per meaningful change and the files it touches.'
+    case AICommitMessageDetail.Thorough:
+      return 'A summary line plus a description covering what changed, why, and the impact — behaviour changes, risks, and follow-ups. Uses the most output tokens.'
+  }
+}
+
+export function parseAICommitMessageDetail(
+  value: string | null
+): AICommitMessageDetail | null {
+  return supportedAICommitMessageDetails.find(d => d === value) ?? null
+}
+
 /** A model we suggest for the provider, with what it costs to run. */
 export interface IAIModelInfo {
   /** The id sent to the provider's API. */
@@ -38,6 +91,8 @@ export interface IAIProviderConfig {
   readonly model: string
   /** Overrides the provider's endpoint. Empty means "use the default". */
   readonly baseURL: string
+  /** How much detail the generated commit message should go into. */
+  readonly detail: AICommitMessageDetail
 }
 
 /**
@@ -235,4 +290,5 @@ export const defaultAIProviderConfig: IAIProviderConfig = {
   provider: AIProvider.Anthropic,
   model: '',
   baseURL: '',
+  detail: AICommitMessageDetail.Concise,
 }

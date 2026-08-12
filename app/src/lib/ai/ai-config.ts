@@ -4,6 +4,7 @@ import {
   defaultAIProviderConfig,
   getDefaultAIBaseURL,
   getDefaultAIModel,
+  parseAICommitMessageDetail,
   parseAIProvider,
 } from '../../models/ai-provider'
 import { TokenStore } from '../stores/token-store'
@@ -13,6 +14,7 @@ const enabledKey = 'aiProviderEnabled'
 const providerKey = 'aiProviderName'
 const modelKey = 'aiProviderModel'
 const baseURLKey = 'aiProviderBaseURL'
+const detailKey = 'aiProviderCommitMessageDetail'
 
 /**
  * Service name for the credential store. The API key is keyed by provider so
@@ -37,6 +39,11 @@ export function getAIProviderConfig(): IAIProviderConfig {
     provider,
     model: localStorage.getItem(modelKey) ?? '',
     baseURL: localStorage.getItem(baseURLKey) ?? '',
+    // Unset for everyone who configured a provider before this setting existed,
+    // which is exactly who should keep the old, concise output.
+    detail:
+      parseAICommitMessageDetail(localStorage.getItem(detailKey)) ??
+      defaultAIProviderConfig.detail,
   }
 }
 
@@ -45,6 +52,7 @@ export function setAIProviderConfig(config: IAIProviderConfig) {
   localStorage.setItem(providerKey, config.provider)
   localStorage.setItem(modelKey, config.model)
   localStorage.setItem(baseURLKey, config.baseURL)
+  localStorage.setItem(detailKey, config.detail)
 }
 
 /**

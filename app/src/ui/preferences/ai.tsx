@@ -9,6 +9,8 @@ import {
   AIProvider,
   IAIProviderConfig,
   formatTokenPrice,
+  getAICommitMessageDetailDescription,
+  getAICommitMessageDetailLabel,
   getAIProviderKeyLabel,
   getAIProviderKeyURL,
   getAIProviderModels,
@@ -17,8 +19,10 @@ import {
   getDefaultAIBaseURL,
   getDefaultAIModel,
   getReferenceModelInfo,
+  parseAICommitMessageDetail,
   parseAIProvider,
   providerReportsPricing,
+  supportedAICommitMessageDetails,
   supportedAIProviders,
 } from '../../models/ai-provider'
 import {
@@ -179,6 +183,19 @@ export class AI extends React.Component<
     this.props.onAIProviderConfigChanged({
       ...this.props.aiProviderConfig,
       model: event.currentTarget.value,
+    })
+  }
+
+  private onDetailChanged = (event: React.FormEvent<HTMLSelectElement>) => {
+    const detail = parseAICommitMessageDetail(event.currentTarget.value)
+
+    if (detail === null) {
+      return
+    }
+
+    this.props.onAIProviderConfigChanged({
+      ...this.props.aiProviderConfig,
+      detail,
     })
   }
 
@@ -411,6 +428,23 @@ export class AI extends React.Component<
           {this.renderState(this.state.modelsState)}
 
           {this.renderPricingTable(models)}
+        </div>
+
+        <div className="advanced-section">
+          <Select
+            label="Commit message detail"
+            value={config.detail}
+            onChange={this.onDetailChanged}
+          >
+            {supportedAICommitMessageDetails.map(detail => (
+              <option key={detail} value={detail}>
+                {getAICommitMessageDetailLabel(detail)}
+              </option>
+            ))}
+          </Select>
+          <p className="git-settings-description">
+            {getAICommitMessageDetailDescription(config.detail)}
+          </p>
         </div>
 
         <div className="advanced-section">

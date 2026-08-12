@@ -1,4 +1,8 @@
-import { AIProvider, IAIProviderConfig } from '../../models/ai-provider'
+import {
+  AICommitMessageDetail,
+  AIProvider,
+  IAIProviderConfig,
+} from '../../models/ai-provider'
 import {
   ICopilotCommitMessage,
   parseCopilotCommitMessage,
@@ -10,17 +14,72 @@ import {
 } from './ai-config'
 
 /**
- * Asks for the same JSON shape Copilot returns, so the response can go through
- * parseCopilotCommitMessage and the rest of the pipeline is unchanged.
+ * Every level asks for the same JSON shape Copilot returns, so responses go
+ * through parseCopilotCommitMessage and the rest of the pipeline is unchanged.
+ *
+ * The shared preamble keeps the title rules identical across levels - only the
+ * description brief changes, because that's the part the user is asking for more
+ * of.
  */
-const CommitMessageSystemPrompt = `You write git commit messages. Given a diff, respond with a single JSON object and nothing else:
+const CommitMessagePreamble = `You write git commit messages. Given a diff, respond with a single JSON object and nothing else:
 
 {"title": "<summary line>", "description": "<body, or an empty string>"}
 
-Write the title in the imperative mood, under 72 characters, with no trailing period. Use the description for why the change was made when that isn't obvious from the title; leave it empty for small self-evident changes. Do not wrap the JSON in prose.`
+Write the title in the imperative mood, under 72 characters, with no trailing period. Do not wrap the JSON in prose.`
 
-/** Commit messages are short; this is headroom, not a target. */
-const MaxResponseTokens = 1024
+/**
+ * Only ever describe what the diff shows. Longer briefs invite invention, and a
+ * confidently wrong commit message is worse than a thin one.
+ */
+const GroundingRule = `Base every statement on the diff itself. If the diff doesn't show why a change was made, say what it does instead of guessing at intent.`
+
+function getCommitMessageSystemPrompt(detail: AICommitMessageDetail): string {
+  switch (detail) {
+    // Unchanged wording from before the setting existed, so the default output
+    // stays exactly what it was.
+    case AICommitMessageDetail.Concise:
+      return `${CommitMessagePreamble}
+
+Use the description for why the change was made when that isn't obvious from the title; leave it empty for small self-evident changes.`
+
+    case AICommitMessageDetail.Detailed:
+      return `${CommitMessagePreamble}
+
+Write a description that spares the reader from having to read the diff:
+- Open with a short paragraph on what changed and why.
+- Then one "- " bullet per meaningful change, naming the file, function, or symbol it touches.
+- Call out behaviour changes, new or removed options, and anything a reader would find surprising.
+
+Collapse purely mechanical edits (formatting, renames, lockfiles, generated output) into a single bullet rather than one each. Separate lines with "\\n" and wrap prose at about 72 characters. ${GroundingRule}`
+
+    case AICommitMessageDetail.Thorough:
+      return `${CommitMessagePreamble}
+
+Write a thorough description, using "\\n" for line breaks and wrapping prose at about 72 characters, organised as:
+
+What changed: a "- " bullet per file or area, naming the functions, symbols, or settings touched and what happened to each.
+Why: the problem the change solves, as far as the diff shows it.
+Impact: behaviour and API changes, anything callers or users have to do differently, and risks or edge cases the diff leaves open.
+
+Drop a section when the diff genuinely has nothing to put in it, and collapse purely mechanical edits (formatting, renames, lockfiles, generated output) into one bullet. ${GroundingRule}`
+  }
+}
+
+/**
+ * Output ceilings, not targets. Each level needs room for the description it was
+ * asked for, and reasoning models spend part of this budget before they emit any
+ * text at all.
+ */
+function getMaxResponseTokens(detail: AICommitMessageDetail): number {
+  switch (detail) {
+    case AICommitMessageDetail.Concise:
+      return 1024
+    case AICommitMessageDetail.Detailed:
+      return 2048
+    case AICommitMessageDetail.Thorough:
+      return 4096
+  }
+}
 
 /** Providers that speak the OpenAI chat-completions dialect. */
 function isOpenAICompatible(provider: AIProvider): boolean {
@@ -57,6 +116,7 @@ function postChatCompletion(
   config: IAIProviderConfig,
   apiKey: string,
   prompt: string,
+  detail: AICommitMessageDetail,
   tokenLimitParam: TokenLimitParam
 ): Promise<Response> {
   return fetch(`${getEffectiveAIBaseURL(config)}/chat/completions`, {
@@ -67,9 +127,9 @@ function postChatCompletion(
     },
     body: JSON.stringify({
       model: getEffectiveAIModel(config),
-      [tokenLimitParam]: MaxResponseTokens,
+      [tokenLimitParam]: getMaxResponseTokens(detail),
       messages: [
-        { role: 'system', content: CommitMessageSystemPrompt },
+        { role: 'system', content: getCommitMessageSystemPrompt(detail) },
         { role: 'user', content: prompt },
       ],
     }),
@@ -79,29 +139,37 @@ function postChatCompletion(
 async function sendOpenAICompatible(
   config: IAIProviderConfig,
   apiKey: string,
-  prompt: string
+  prompt: string,
+  detail: AICommitMessageDetail
 ): Promise<string> {
-  let response = await postChatCompletion(config, apiKey, prompt, 'max_tokens')
+  let response = await postChatCompletion(
+    config,
+    apiKey,
+    prompt,
+    detail,
+    'max_tokens'
+  )
 
   // Newer OpenAI models reject max_tokens outright and require
   // max_completion_tokens. Which models those are keeps changing, so react to
   // the error the API actually returns rather than pattern-matching model names
   // that will be out of date by the next release.
   if (response.status === 400) {
-    const detail = await response.text()
+    const errorBody = await response.text()
 
-    if (detail.includes('max_completion_tokens')) {
+    if (errorBody.includes('max_completion_tokens')) {
       response = await postChatCompletion(
         config,
         apiKey,
         prompt,
+        detail,
         'max_completion_tokens'
       )
     } else {
       throw new Error(
         `${config.provider} request failed (400 ${
           response.statusText
-        }): ${detail.slice(0, 500)}`
+        }): ${errorBody.slice(0, 500)}`
       )
     }
   }
@@ -111,9 +179,19 @@ async function sendOpenAICompatible(
   }
 
   const body = await response.json()
-  const content = body?.choices?.[0]?.message?.content
+  const choice = body?.choices?.[0]
+  const content = choice?.message?.content
 
-  if (typeof content !== 'string') {
+  if (typeof content !== 'string' || content === '') {
+    // Reasoning models count their thinking against the output cap, so a model
+    // can hit the ceiling before writing a single character. Say so, rather than
+    // reporting an empty response the user can't act on.
+    if (choice?.finish_reason === 'length') {
+      throw new Error(
+        `${config.provider} hit its output token limit before returning a commit message. Try a lower detail level in Preferences > AI, or a model that reasons less.`
+      )
+    }
+
     throw new Error(`${config.provider} returned no message content`)
   }
 
@@ -123,7 +201,8 @@ async function sendOpenAICompatible(
 async function sendAnthropic(
   config: IAIProviderConfig,
   apiKey: string,
-  prompt: string
+  prompt: string,
+  detail: AICommitMessageDetail
 ): Promise<string> {
   const response = await fetch(`${getEffectiveAIBaseURL(config)}/messages`, {
     method: 'POST',
@@ -134,8 +213,8 @@ async function sendAnthropic(
     },
     body: JSON.stringify({
       model: getEffectiveAIModel(config),
-      max_tokens: MaxResponseTokens,
-      system: CommitMessageSystemPrompt,
+      max_tokens: getMaxResponseTokens(detail),
+      system: getCommitMessageSystemPrompt(detail),
       messages: [{ role: 'user', content: prompt }],
     }),
   })
@@ -167,7 +246,8 @@ async function sendAnthropic(
 async function sendGemini(
   config: IAIProviderConfig,
   apiKey: string,
-  prompt: string
+  prompt: string,
+  detail: AICommitMessageDetail
 ): Promise<string> {
   const model = getEffectiveAIModel(config)
   const url = `${getEffectiveAIBaseURL(config)}/models/${encodeURIComponent(
@@ -183,9 +263,11 @@ async function sendGemini(
       'x-goog-api-key': apiKey,
     },
     body: JSON.stringify({
-      systemInstruction: { parts: [{ text: CommitMessageSystemPrompt }] },
+      systemInstruction: {
+        parts: [{ text: getCommitMessageSystemPrompt(detail) }],
+      },
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { maxOutputTokens: MaxResponseTokens },
+      generationConfig: { maxOutputTokens: getMaxResponseTokens(detail) },
     }),
   })
 
@@ -470,12 +552,17 @@ export async function fetchAIModels(
 /**
  * Dispatches a prompt to whichever provider the user configured.
  *
- * @param apiKeyOverride Used instead of the stored key. Lets the preferences
- *                       pane validate a key the user hasn't saved yet.
+ * @param detail          Which system prompt and token budget to use, rather
+ *                        than the configured one. The connection test overrides
+ *                        it so verifying a key stays cheap regardless of the
+ *                        detail level the user picked.
+ * @param apiKeyOverride  Used instead of the stored key. Lets the preferences
+ *                        pane validate a key the user hasn't saved yet.
  */
 async function send(
   config: IAIProviderConfig,
   prompt: string,
+  detail: AICommitMessageDetail,
   apiKeyOverride?: string
 ): Promise<string> {
   const apiKey =
@@ -490,16 +577,16 @@ async function send(
   }
 
   if (isOpenAICompatible(config.provider)) {
-    return sendOpenAICompatible(config, apiKey, prompt)
+    return sendOpenAICompatible(config, apiKey, prompt, detail)
   }
 
   switch (config.provider) {
     case AIProvider.Anthropic:
-      return sendAnthropic(config, apiKey, prompt)
+      return sendAnthropic(config, apiKey, prompt, detail)
     case AIProvider.Gemini:
-      return sendGemini(config, apiKey, prompt)
+      return sendGemini(config, apiKey, prompt, detail)
     default:
-      return sendOpenAICompatible(config, apiKey, prompt)
+      return sendOpenAICompatible(config, apiKey, prompt, detail)
   }
 }
 
@@ -516,7 +603,7 @@ export async function generateCommitMessageWithCustomAI(
   config: IAIProviderConfig,
   diff: string
 ): Promise<ICopilotCommitMessage> {
-  const content = await send(config, diff)
+  const content = await send(config, diff, config.detail)
   return parseCopilotCommitMessage(content)
 }
 
@@ -533,6 +620,7 @@ export async function verifyAIProvider(
   await send(
     config,
     'Respond with {"title": "test", "description": ""}.',
+    AICommitMessageDetail.Concise,
     apiKeyOverride
   )
 }
