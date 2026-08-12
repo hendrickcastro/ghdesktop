@@ -121,6 +121,13 @@ if (__WIN32__ && __DEV__) {
   app.setAppUserModelId('com.squirrel.GitHubDesktop.GitHubDesktop')
 }
 
+app.on('will-quit', () => {
+  // If an update was downloaded but never installed, put it in place now. The
+  // work is handed to a detached process, so it survives this one exiting - but
+  // it has to be started synchronously, because nothing here waits on promises.
+  mainWindow?.installPendingUpdateOnQuit()
+})
+
 app.on('window-all-closed', () => {
   // If we don't subscribe to this event and all windows are closed, the default
   // behavior is to quit the app. We don't want that though, we control that
@@ -537,6 +544,10 @@ app.on('ready', () => {
 
   ipcMain.handle('check-for-updates', async (_, url) =>
     mainWindow?.checkForUpdates(url)
+  )
+
+  ipcMain.handle('check-for-github-updates', async () =>
+    mainWindow?.checkForGitHubUpdates()
   )
 
   ipcMain.on('quit-and-install-updates', () =>

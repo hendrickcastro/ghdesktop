@@ -37,6 +37,8 @@ export class AboutTestDialog extends React.Component<
         newReleases: [],
         prioritizeUpdate: false,
         prioritizeUpdateInfoUrl: undefined,
+        pendingUpdate: null,
+        downloadProgress: null,
       },
     }
   }

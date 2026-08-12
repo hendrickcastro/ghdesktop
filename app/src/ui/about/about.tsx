@@ -9,7 +9,11 @@ import {
   DefaultDialogFooter,
 } from '../dialog'
 import { LinkButton } from '../lib/link-button'
-import { IUpdateState, UpdateStatus } from '../lib/update-store'
+import {
+  IUpdateState,
+  UpdateStatus,
+  isGitHubUpdateMode,
+} from '../lib/update-store'
 import { Loading } from '../lib/loading'
 import { RelativeTime } from '../relative-time'
 import { assertNever } from '../../lib/fatal-error'
@@ -107,7 +111,11 @@ export class About extends React.Component<IAboutProps> {
         return (
           <Row>
             <Button onClick={this.props.onQuitAndInstall}>
-              Quit and Install Update
+              {isGitHubUpdateMode()
+                ? // This path relaunches once the new version is in place,
+                  // where Squirrel's leaves the app closed.
+                  'Restart and Install Update'
+                : 'Quit and Install Update'}
             </Button>
           </Row>
         )
@@ -161,7 +169,12 @@ export class About extends React.Component<IAboutProps> {
       case UpdateStatus.CheckingForUpdates:
         return <UpdateInfo message="Checking for updates…" loading={true} />
       case UpdateStatus.UpdateAvailable:
-        return <UpdateInfo message="Downloading update…" loading={true} />
+        return (
+          <UpdateInfo
+            message={`Downloading update…${this.renderDownloadProgress()}`}
+            loading={true}
+          />
+        )
       case UpdateStatus.UpdateNotAvailable:
         if (!lastSuccessfulCheck) {
           return null
@@ -186,14 +199,43 @@ export class About extends React.Component<IAboutProps> {
           />
         )
       case UpdateStatus.UpdateReady:
+        const { pendingUpdate } = this.props.updateState
+
         return (
-          <UpdateInfo message="An update has been downloaded and is ready to be installed." />
+          <UpdateInfo
+            message={
+              pendingUpdate === null
+                ? 'An update has been downloaded and is ready to be installed.'
+                : `Version ${pendingUpdate.version} has been downloaded and will be installed when you quit or restart.`
+            }
+          />
         )
       case UpdateStatus.UpdateNotChecked:
         return null
       default:
         return assertNever(status, `Unknown update status ${status}`)
     }
+  }
+
+  /**
+   * The share of the download that's done, as a suffix for the status line.
+   *
+   * Empty until there's something honest to say - these payloads are hundreds of
+   * megabytes, so a spinner on its own leaves the user guessing for minutes.
+   */
+  private renderDownloadProgress(): string {
+    const progress = this.props.updateState.downloadProgress
+
+    if (progress === null || progress.total <= 0) {
+      return ''
+    }
+
+    const percent = Math.min(
+      100,
+      Math.round((progress.transferred / progress.total) * 100)
+    )
+
+    return ` ${percent}%`
   }
 
   private renderUpdateErrors() {
@@ -218,6 +260,13 @@ export class About extends React.Component<IAboutProps> {
     }
 
     if (!this.props.updateState.lastSuccessfulCheck) {
+      // A build that updates from the fork's releases has never checked on a
+      // fresh install, which is not a problem and not something GitHub Support
+      // can help with.
+      if (isGitHubUpdateMode()) {
+        return null
+      }
+
       return (
         <DialogError>
           Couldn't determine the last time an update check was performed. You

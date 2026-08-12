@@ -136,16 +136,33 @@ export function getDistArchitecture(): 'arm64' | 'x64' {
 }
 
 /**
- * Whether this build should check for updates at all.
+ * Whether this build should check Squirrel's feed for updates.
  *
  * This fork doesn't run an update server of its own, and upstream's feed
  * (desktop/desktop on Central) serves vanilla GitHub Desktop. Left enabled, the
  * first background check silently replaces this build with upstream's - fork
  * features and all. Point DESKTOP_UPDATES_URL at a feed we control to opt back
  * in.
+ *
+ * Note this only governs the Squirrel feed. Updates from the fork's GitHub
+ * releases are a separate path - see getUpdatesGitHubRepository.
  */
 export const areUpdatesDisabled = () =>
   process.env.DESKTOP_UPDATES_URL === undefined
+
+/**
+ * The `owner/repo` whose GitHub releases this build updates itself from.
+ *
+ * Squirrel can't serve this fork: its Mac updater refuses anything that isn't
+ * signed with a stable Developer ID, and these builds are ad-hoc signed. So the
+ * app reads the fork's releases directly instead - see
+ * app/src/main-process/github-updater.ts.
+ *
+ * Set DESKTOP_UPDATES_GITHUB_REPO to point a build somewhere else, or to an
+ * empty string to build an app that never checks.
+ */
+export const getUpdatesGitHubRepository = () =>
+  process.env.DESKTOP_UPDATES_GITHUB_REPO ?? 'hendrickcastro/ghdesktop'
 
 export function getUpdatesURL() {
   if (process.env.DESKTOP_UPDATES_URL !== undefined) {

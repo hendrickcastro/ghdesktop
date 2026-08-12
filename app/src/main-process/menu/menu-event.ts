@@ -29,6 +29,7 @@ export type MenuEvent =
   | 'view-repository-on-github'
   | 'clone-repository'
   | 'show-about'
+  | 'check-for-updates'
   | 'go-to-commit-message'
   | 'open-pull-request'
   | 'install-darwin-cli'

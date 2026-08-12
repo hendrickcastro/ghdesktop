@@ -3,6 +3,7 @@ const lastSuccessfulCheckKey = 'last-successful-update-check'
 import { Emitter, Disposable } from 'event-kit'
 
 import {
+  checkForGitHubUpdates,
   checkForUpdates,
   isRunningUnderARM64Translation,
   onAutoUpdaterCheckingForUpdate,
@@ -10,9 +11,15 @@ import {
   onAutoUpdaterUpdateAvailable,
   onAutoUpdaterUpdateDownloaded,
   onAutoUpdaterUpdateNotAvailable,
+  onGitHubUpdateDownloadProgress,
+  onGitHubUpdateStaged,
   quitAndInstallUpdate,
   sendWillQuitSync,
 } from '../main-process-proxy'
+import {
+  IGitHubUpdate,
+  IUpdateDownloadProgress,
+} from '../../lib/updates/github-release'
 import { ErrorWithMetadata } from '../../lib/error-with-metadata'
 import { parseError } from '../../lib/squirrel-error-parser'
 
@@ -53,6 +60,23 @@ export interface IUpdateState {
   newReleases: ReadonlyArray<ReleaseSummary> | null
   prioritizeUpdate: boolean
   prioritizeUpdateInfoUrl: string | undefined
+  /**
+   * The release downloaded from the fork's GitHub releases, once there is one.
+   * Null on the Squirrel path, which doesn't say what it downloaded.
+   */
+  pendingUpdate: IGitHubUpdate | null
+  /** How far along the current download is, while one is running. */
+  downloadProgress: IUpdateDownloadProgress | null
+}
+
+/**
+ * Whether updates come from the fork's GitHub releases rather than Squirrel.
+ *
+ * Mirrors isGitHubUpdaterEnabled in the main process: a Squirrel feed wins when
+ * a build has one.
+ */
+export function isGitHubUpdateMode(): boolean {
+  return __UPDATES_GITHUB_REPO__ !== '' && __UPDATES_URL__ === ''
 }
 
 /** A store which contains the current state of the auto updater. */
@@ -67,6 +91,8 @@ class UpdateStore {
   private userInitiatedUpdate = true
   private _prioritizeUpdate = false
   private _prioritizeUpdateInfoUrl: string | undefined = undefined
+  private pendingUpdate: IGitHubUpdate | null = null
+  private downloadProgress: IUpdateDownloadProgress | null = null
 
   public get prioritizeUpdate() {
     return this._prioritizeUpdate
@@ -88,6 +114,24 @@ class UpdateStore {
     onAutoUpdaterUpdateAvailable(this.onUpdateAvailable)
     onAutoUpdaterUpdateNotAvailable(this.onUpdateNotAvailable)
     onAutoUpdaterUpdateDownloaded(this.onUpdateDownloaded)
+    onGitHubUpdateStaged(this.onGitHubUpdateStaged)
+    onGitHubUpdateDownloadProgress(this.onGitHubDownloadProgress)
+  }
+
+  /** Arrives just before the update-downloaded event, naming the release. */
+  private onGitHubUpdateStaged = (
+    _: Electron.IpcRendererEvent,
+    update: IGitHubUpdate
+  ) => {
+    this.pendingUpdate = update
+  }
+
+  private onGitHubDownloadProgress = (
+    _: Electron.IpcRendererEvent,
+    progress: IUpdateDownloadProgress
+  ) => {
+    this.downloadProgress = progress
+    this.emitDidChange()
   }
 
   private touchLastChecked() {
@@ -119,14 +163,31 @@ class UpdateStore {
   }
 
   private onUpdateNotAvailable = async () => {
-    // This is so we can check for pretext changelog for showcasing a recent update
-    this.newReleases = await generateReleaseSummary()
+    // This is so we can check for pretext changelog for showcasing a recent
+    // update. Skipped on the GitHub path: that changelog is upstream's, so it
+    // describes releases this fork never shipped.
+    if (!isGitHubUpdateMode()) {
+      this.newReleases = await generateReleaseSummary()
+    }
+
+    this.downloadProgress = null
     this.touchLastChecked()
     this.status = UpdateStatus.UpdateNotAvailable
     this.emitDidChange()
   }
 
   private onUpdateDownloaded = async () => {
+    this.downloadProgress = null
+
+    if (isGitHubUpdateMode()) {
+      // The release's own notes live on github.com, which the UI links to via
+      // pendingUpdate rather than rendering them in the release notes popup.
+      this.touchLastChecked()
+      this.status = UpdateStatus.UpdateReady
+      this.emitDidChange()
+      return
+    }
+
     this.newReleases = await generateReleaseSummary()
     // We know it's an "immediate" auto-update from x64 to arm64 if the app is
     // running on arm64 under x64 emulation and there is only one new release
@@ -185,6 +246,8 @@ class UpdateStore {
       isX64ToARM64ImmediateAutoUpdate: this.isX64ToARM64ImmediateAutoUpdate,
       prioritizeUpdate: this.prioritizeUpdate,
       prioritizeUpdateInfoUrl: this.prioritizeUpdateInfoUrl,
+      pendingUpdate: this.pendingUpdate,
+      downloadProgress: this.downloadProgress,
     }
   }
 
@@ -208,13 +271,23 @@ class UpdateStore {
       return
     }
 
+    this.userInitiatedUpdate = !inBackground
+
+    if (isGitHubUpdateMode()) {
+      const error = await checkForGitHubUpdates()
+
+      if (error !== undefined) {
+        this.emitError(error)
+      }
+
+      return
+    }
+
     const updatesUrl = await this.getUpdatesUrl(skipGuidCheck)
 
     if (updatesUrl === null) {
       return
     }
-
-    this.userInitiatedUpdate = !inBackground
 
     const error = await checkForUpdates(updatesUrl)
 
@@ -224,8 +297,9 @@ class UpdateStore {
   }
 
   private async getUpdatesUrl(skipGuidCheck: boolean) {
-    // An empty updates URL means this build has no feed of its own to check, so
-    // there's nothing to look for. See areUpdatesDisabled in
+    // An empty updates URL means this build has no Squirrel feed to check - it
+    // updates from the fork's GitHub releases instead, which checkForUpdates
+    // routes to before it gets here. See areUpdatesDisabled in
     // script/dist-info.ts for why we don't fall back to upstream's feed.
     if (__UPDATES_URL__ === '') {
       return null
@@ -316,6 +390,12 @@ class UpdateStore {
    * was published in the last 15 days.
    */
   public async isUpdateShowcase() {
+    // The showcase is driven by upstream's changelog, which says nothing about
+    // this fork's releases.
+    if (isGitHubUpdateMode()) {
+      return false
+    }
+
     if (
       (__RELEASE_CHANNEL__ === 'development' ||
         __RELEASE_CHANNEL__ === 'test') &&

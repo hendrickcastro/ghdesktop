@@ -4,6 +4,10 @@ import * as ipcRenderer from '../lib/ipc-renderer'
 import { stat } from 'fs/promises'
 import { isApplicationBundle } from '../lib/is-application-bundle'
 import { pathExists } from './lib/path-exists'
+import {
+  IGitHubUpdate,
+  IUpdateDownloadProgress,
+} from '../lib/updates/github-release'
 
 /**
  * Creates a strongly typed proxy method for sending a duplex IPC message to the
@@ -164,6 +168,9 @@ export const setWindowZoomFactor = sendProxy('set-window-zoom-factor', 1)
 /** Tell the main process to check for app updates */
 export const checkForUpdates = invokeProxy('check-for-updates', 1)
 
+/** Tell the main process to check the fork's GitHub releases for an update */
+export const checkForGitHubUpdates = invokeProxy('check-for-github-updates', 0)
+
 /** Tell the main process to quit the app and install updates */
 export const quitAndInstallUpdate = sendProxy('quit-and-install-updates', 0)
 
@@ -199,6 +206,26 @@ export function onAutoUpdaterUpdateNotAvailable(eventHandler: () => void) {
  * main process */
 export function onAutoUpdaterUpdateDownloaded(eventHandler: () => void) {
   ipcRenderer.on('auto-updater-update-downloaded', eventHandler)
+}
+
+/**
+ * Subscribes to the GitHub updater naming the release it has downloaded, which
+ * arrives just before the generic update-downloaded event.
+ */
+export function onGitHubUpdateStaged(
+  eventHandler: (evt: Electron.IpcRendererEvent, update: IGitHubUpdate) => void
+) {
+  ipcRenderer.on('github-update-staged', eventHandler)
+}
+
+/** Subscribes to download progress from the GitHub updater */
+export function onGitHubUpdateDownloadProgress(
+  eventHandler: (
+    evt: Electron.IpcRendererEvent,
+    progress: IUpdateDownloadProgress
+  ) => void
+) {
+  ipcRenderer.on('github-update-download-progress', eventHandler)
 }
 
 /** Subscribes to the native theme updated event originating from the main process */

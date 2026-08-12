@@ -498,6 +498,11 @@ export class App extends React.Component<IAppProps, IAppState> {
         return this.showCloneRepo()
       case 'show-about':
         return this.showAbout()
+      case 'check-for-updates':
+        // Opening About alongside the check is what makes the result visible:
+        // it's where progress, the version found, and the install button live.
+        this.showAbout()
+        return this.checkForUpdates(false, true)
       case 'go-to-commit-message':
         return this.goToCommitMessage()
       case 'open-pull-request':

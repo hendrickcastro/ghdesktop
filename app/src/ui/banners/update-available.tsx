@@ -157,9 +157,12 @@ export class UpdateAvailable extends React.Component<IUpdateAvailableProps> {
 
   private showReleaseNotes = () => {
     if (this.props.newReleases == null) {
-      // if, for some reason we're not able to render the release notes we
-      // should redirect the user to the website so we do _something_
-      shell.openExternal(ReleaseNotesUri)
+      // No parsed release notes to show, either because we couldn't get them or
+      // because this build updates from GitHub releases, where the notes live on
+      // the release's own page. Send the user to whichever page applies.
+      shell.openExternal(
+        updateStore.state.pendingUpdate?.releaseUrl || ReleaseNotesUri
+      )
     } else {
       this.props.dispatcher.showPopup({
         type: PopupType.ReleaseNotes,

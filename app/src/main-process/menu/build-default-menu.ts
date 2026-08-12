@@ -71,6 +71,11 @@ export function buildDefaultMenu({
           click: emit('show-about'),
           id: 'about',
         },
+        {
+          label: 'Check for Updates…',
+          id: 'check-for-updates',
+          click: emit('check-for-updates'),
+        },
         separator,
         {
           label: 'Settings…',
@@ -580,6 +585,11 @@ export function buildDefaultMenu({
       submenu: [
         ...helpItems,
         separator,
+        {
+          label: 'Check for &Updates…',
+          id: 'check-for-updates',
+          click: emit('check-for-updates'),
+        },
         {
           label: '&About GitHub Desktop',
           click: emit('show-about'),

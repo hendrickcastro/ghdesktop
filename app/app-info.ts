@@ -3,6 +3,7 @@ import {
   getUpdatesURL,
   getChannel,
   areUpdatesDisabled,
+  getUpdatesGitHubRepository,
 } from '../script/dist-info'
 import { version, productName } from './package.json'
 
@@ -33,6 +34,7 @@ export function getReplacements() {
       process.env.DESKTOP_E2E_UPDATES_URL ??
         (areUpdatesDisabled() ? '' : getUpdatesURL())
     ),
+    __UPDATES_GITHUB_REPO__: s(getUpdatesGitHubRepository()),
     __SHA__: s(getSHA()),
     'process.platform': s(process.platform),
     'process.env.NODE_ENV': s(process.env.NODE_ENV || 'development'),

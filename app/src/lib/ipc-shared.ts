@@ -17,6 +17,10 @@ import { DesktopNotificationPermission } from 'desktop-notifications'
 import { NotificationCallback } from 'desktop-notifications'
 import { DesktopAliveEvent } from './stores/alive-store'
 import { CLIAction } from './cli-action'
+import {
+  IGitHubUpdate,
+  IUpdateDownloadProgress,
+} from './updates/github-release'
 
 /**
  * Defines the simplex IPC channel names we use from the renderer
@@ -78,6 +82,13 @@ export type RequestChannels = {
   'auto-updater-update-available': () => void
   'auto-updater-update-not-available': () => void
   'auto-updater-update-downloaded': () => void
+  /**
+   * The release the GitHub updater is about to report as downloaded. Sent just
+   * before 'auto-updater-update-downloaded' so the UI can name the version and
+   * link to its release notes, neither of which Squirrel's events carry.
+   */
+  'github-update-staged': (update: IGitHubUpdate) => void
+  'github-update-download-progress': (progress: IUpdateDownloadProgress) => void
   'native-theme-updated': () => void
   'set-native-theme-source': (themeName: ThemeSource) => void
   'update-window-background-color': (color: string) => void
@@ -114,6 +125,12 @@ export type RequestResponseChannels = {
   'is-in-application-folder': () => Promise<boolean | null>
   'move-to-applications-folder': () => Promise<void>
   'check-for-updates': (url: string) => Promise<Error | undefined>
+  /**
+   * Checks the fork's GitHub releases, downloading a newer one if it finds it.
+   * Resolves with an error only when the check itself couldn't be started;
+   * everything after that is reported through the auto-updater events.
+   */
+  'check-for-github-updates': () => Promise<Error | undefined>
   'get-current-window-state': () => Promise<WindowState | undefined>
   'get-current-window-zoom-factor': () => Promise<number | undefined>
   'resolve-proxy': (url: string) => Promise<string>

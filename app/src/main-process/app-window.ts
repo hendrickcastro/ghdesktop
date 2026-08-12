@@ -29,6 +29,7 @@ import {
 import { addTrustedIPCSender } from './trusted-ipc-sender'
 import { getUpdaterGUID } from '../lib/get-updater-guid'
 import { CLIAction } from '../lib/cli-action'
+import { GitHubUpdater, isGitHubUpdaterEnabled } from './github-updater'
 
 export class AppWindow {
   private window: Electron.BrowserWindow
@@ -37,6 +38,12 @@ export class AppWindow {
   private _loadTime: number | null = null
   private _rendererReadyTime: number | null = null
   private isDownloadingUpdate: boolean = false
+
+  /**
+   * Updates this fork from its own GitHub releases, for builds with no Squirrel
+   * feed to check. Null when the build has neither.
+   */
+  private githubUpdater: GitHubUpdater | null = null
 
   private minWidth = 960
   private minHeight = 660
@@ -439,6 +446,55 @@ export class AppWindow {
         'auto-updater-update-downloaded'
       )
     })
+
+    this.setupGitHubUpdater()
+  }
+
+  /**
+   * Wires up the GitHub releases updater, which reports through the same events
+   * as Squirrel so the renderer's update store doesn't need to know which one is
+   * running.
+   */
+  private setupGitHubUpdater() {
+    if (!isGitHubUpdaterEnabled()) {
+      return
+    }
+
+    const { webContents } = this.window
+
+    this.githubUpdater = new GitHubUpdater({
+      onCheckingForUpdate: () => {
+        this.isDownloadingUpdate = false
+        ipcWebContents.send(webContents, 'auto-updater-checking-for-update')
+      },
+      onUpdateAvailable: () => {
+        this.isDownloadingUpdate = true
+        ipcWebContents.send(webContents, 'auto-updater-update-available')
+      },
+      onUpdateNotAvailable: () => {
+        this.isDownloadingUpdate = false
+        ipcWebContents.send(webContents, 'auto-updater-update-not-available')
+      },
+      onUpdateDownloaded: update => {
+        this.isDownloadingUpdate = false
+        ipcWebContents.send(webContents, 'github-update-staged', update)
+        ipcWebContents.send(webContents, 'auto-updater-update-downloaded')
+      },
+      onDownloadProgress: progress =>
+        ipcWebContents.send(
+          webContents,
+          'github-update-download-progress',
+          progress
+        ),
+      onError: error => {
+        this.isDownloadingUpdate = false
+        ipcWebContents.send(webContents, 'auto-updater-error', error)
+      },
+    })
+
+    this.githubUpdater
+      .cleanUpPreviousDownloads()
+      .catch(e => log.warn('Could not clean up past update downloads', e))
   }
 
   public async checkForUpdates(url: string) {
@@ -451,8 +507,37 @@ export class AppWindow {
     return undefined
   }
 
+  /** Checks the fork's GitHub releases for a newer build. */
+  public async checkForGitHubUpdates() {
+    if (this.githubUpdater === null) {
+      return new Error('This build is not set up to update itself.')
+    }
+
+    try {
+      await this.githubUpdater.checkForUpdates()
+    } catch (e) {
+      return e
+    }
+
+    return undefined
+  }
+
   public quitAndInstallUpdate() {
+    // A staged GitHub update means Squirrel has nothing waiting - the two paths
+    // are mutually exclusive, and only one of them ever downloaded anything.
+    if (this.githubUpdater?.install(true) === true) {
+      return
+    }
+
     autoUpdater.quitAndInstall()
+  }
+
+  /**
+   * Installs a downloaded update as the app quits, so an update the user never
+   * clicked on still lands rather than waiting forever for a restart.
+   */
+  public installPendingUpdateOnQuit() {
+    this.githubUpdater?.installOnQuit()
   }
 
   public minimizeWindow() {

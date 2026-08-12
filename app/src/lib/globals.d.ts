@@ -51,6 +51,12 @@ declare const __RELEASE_CHANNEL__:
 declare const __UPDATES_URL__: string
 
 /**
+ * The `owner/repo` whose GitHub releases this build updates itself from, or an
+ * empty string when this build shouldn't check.
+ */
+declare const __UPDATES_GITHUB_REPO__: string
+
+/**
  * The currently executing process kind, this is specific to desktop
  * and identifies the processes that we have.
  */
