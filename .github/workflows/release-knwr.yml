@@ -211,7 +211,10 @@ jobs:
   build-windows:
     name: Build Windows (x64)
     needs: [create-release]
-    runs-on: windows-latest
+    # windows-latest ships without the Visual Studio C++ workload node-gyp
+    # detects, so installing the native dependencies fails there. This is the
+    # runner the repository's own CI builds on.
+    runs-on: windows-2022
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
