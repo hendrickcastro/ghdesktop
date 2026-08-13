@@ -85,7 +85,15 @@ generateLicenseMetadata(outRoot)
 
 moveAnalysisFiles()
 
-if (isGitHubActions() && process.platform === 'darwin' && isPublishableBuild) {
+// The keychain only exists to hold the Apple signing certificate, so skip it
+// when there isn't one - the build ad-hoc signs in that case (see osxSign
+// below), and importing an empty certificate just fails the build outright.
+if (
+  isGitHubActions() &&
+  process.platform === 'darwin' &&
+  isPublishableBuild &&
+  process.env.APPLE_APPLICATION_CERT
+) {
   console.log('Setting up keychain…')
   cp.execSync(path.join(__dirname, 'setup-macos-keychain'))
 }

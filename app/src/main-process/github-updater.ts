@@ -117,6 +117,13 @@ export class GitHubUpdater {
       })
 
       if (update === null) {
+        // Logged even though nothing happened: without it a check that found
+        // nothing is indistinguishable from a check that never ran.
+        log.info(
+          `[GitHubUpdater] ${app.getVersion()} is the newest release for ${
+            process.platform
+          }/${process.arch}`
+        )
         this.callbacks.onUpdateNotAvailable()
         return
       }
