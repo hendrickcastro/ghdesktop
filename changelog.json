@@ -1,6 +1,6 @@
 {
   "releases": {
-    "3.5.12": [
+    "3.5.13": [
       "[Added] Check for Updates in the app menu, and automatic updates from this fork's own GitHub releases - downloaded in the background and installed when you quit",
       "[Added] Commit message detail levels for your own AI provider - Concise (default), Detailed, or Thorough - in Preferences > AI",
       "[Added] install.sh for macOS, which installs to Applications and clears the quarantine flag Gatekeeper blocks ad-hoc signed builds with",

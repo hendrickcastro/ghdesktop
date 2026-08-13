@@ -148,6 +148,15 @@ function packageWindows() {
         const from = join(outputDir, `${prefix}-${kind}.nupkg`)
         const to = join(outputDir, `${prefix}-${arch}-${kind}.nupkg`)
 
+        // Squirrel only writes a delta package when it had a previous release to
+        // diff against, which it gets from the remoteReleases feed. This fork
+        // has no such feed - it updates from its GitHub releases - so asking for
+        // deltas produces only the full package.
+        if (!existsSync(from)) {
+          console.log(`No ${kind} nuget package was produced, skipping rename`)
+          continue
+        }
+
         console.log(`Renaming ${from} to ${to}`)
         await rename(from, to)
       }

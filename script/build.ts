@@ -173,9 +173,18 @@ function packageApp() {
     process.platform === 'darwin' &&
     osxNotarize === undefined
   ) {
-    // we can't publish a mac build without these
-    throw new Error(
-      'Unable to retreive appleId and/or appleIdPassword to notarize macOS build'
+    // Upstream can't publish a mac build without these. This fork has no Apple
+    // developer account at all and ad-hoc signs instead - see osxSign below - so
+    // only treat the missing credentials as fatal when a certificate was
+    // configured and notarization is what's missing, which is a real mistake.
+    if (process.env.APPLE_APPLICATION_CERT) {
+      throw new Error(
+        'Unable to retreive appleId and/or appleIdPassword to notarize macOS build'
+      )
+    }
+
+    console.log(
+      'No Apple credentials available; this build will be ad-hoc signed and not notarized.'
     )
   }
 

@@ -163,8 +163,12 @@ jobs:
       - name: Build DMG and name the assets
         run: |
           set -euo pipefail
+          shopt -s nullglob
 
-          APP=$(ls -d dist/*/*.app | head -1)
+          # Globs rather than `ls | head`: with pipefail, a closed pipe turns a
+          # perfectly good listing into a failed step.
+          apps=(dist/*/*.app)
+          APP="${apps[0]}"
           echo "Packaging $APP"
 
           # Ad-hoc signed builds can come out of packaging with a nested
@@ -192,8 +196,8 @@ jobs:
           # yarn package writes a zip whose name carries spaces. The updater
           # prefers a zip over a disk image - one ditto, nothing to mount - so
           # rename it to something that survives a URL.
-          ZIP=$(ls dist/*.zip | head -1)
-          mv "$ZIP" dist/GitHubDesktopKNWR-arm64.zip
+          zips=(dist/*.zip)
+          mv "${zips[0]}" dist/GitHubDesktopKNWR-arm64.zip
 
           ls -lh "$DMG" dist/GitHubDesktopKNWR-arm64.zip
 
