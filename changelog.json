@@ -1,5 +1,9 @@
 {
   "releases": {
+    "3.5.17": [
+      "[Added] Clone several Azure DevOps repositories at once: tick them (per repository, per team project, or all shown) and each is cloned into its own subfolder of the chosen folder",
+      "[Added] Repositories that already exist at the destination are flagged as you tick them and left out of the clone, instead of failing afterwards"
+    ],
     "3.5.16": [
       "[Fixed] The macOS keychain no longer asks for permission on every fetch of an Azure DevOps repository: the organization's token is read once per launch and reused, so the prompt appears at most once per organization after an update"
     ],
