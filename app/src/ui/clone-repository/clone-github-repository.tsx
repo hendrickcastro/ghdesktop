@@ -9,6 +9,7 @@ import { IAPIRepository } from '../../lib/api'
 import { CloneableRepositoryFilterList } from './cloneable-repository-filter-list'
 import { ClickSource } from '../lib/list'
 import { AccountPicker } from '../account-picker'
+import { ICloneCandidate, MultiCloneNote, pathFieldLabel } from './multi-clone'
 
 interface ICloneGithubRepositoryProps {
   /** The account to clone from. */
@@ -16,7 +17,10 @@ interface ICloneGithubRepositoryProps {
 
   readonly accounts: ReadonlyArray<Account>
 
-  /** The path to clone to. */
+  /**
+   * The path to clone to: one repository's folder normally, the parent folder
+   * of every ticked repository while any are ticked.
+   */
   readonly path: string
 
   /** Called when the destination path changes. */
@@ -83,6 +87,23 @@ interface ICloneGithubRepositoryProps {
   ) => void
 
   readonly onSelectedAccountChanged: (account: Account) => void
+
+  /**
+   * Repositories ticked for cloning together, by clone URL. Ticking any puts
+   * the tab in multi-clone mode.
+   */
+  readonly checked: ReadonlyMap<string, ICloneCandidate>
+
+  readonly onCheckedChanged: (
+    candidates: ReadonlyArray<ICloneCandidate>,
+    checked: boolean
+  ) => void
+
+  /**
+   * Ticked repositories whose destination folder already has something in it,
+   * by clone URL, with the reason. These are shown and left out of the clone.
+   */
+  readonly conflicts: ReadonlyMap<string, string>
 }
 
 export class CloneGithubRepository extends React.PureComponent<ICloneGithubRepositoryProps> {
@@ -98,6 +119,9 @@ export class CloneGithubRepository extends React.PureComponent<ICloneGithubRepos
   }
 
   public render() {
+    const { checked, conflicts } = this.props
+    const multiple = checked.size > 0
+
     return (
       <DialogContent className="clone-github-repository-content">
         {this.props.accounts.length > 1 && (
@@ -114,18 +138,23 @@ export class CloneGithubRepository extends React.PureComponent<ICloneGithubRepos
             onFilterTextChanged={this.props.onFilterTextChanged}
             onRefreshRepositories={this.props.onRefreshRepositories}
             onItemClicked={this.props.onItemClicked}
+            checked={checked}
+            onCheckedChanged={this.props.onCheckedChanged}
+            conflicts={conflicts}
           />
         </Row>
 
         <Row className="local-path-field">
           <TextBox
             value={this.props.path}
-            label={__DARWIN__ ? 'Local Path' : 'Local path'}
-            placeholder="repository path"
+            label={pathFieldLabel(multiple)}
+            placeholder={multiple ? 'parent folder' : 'repository path'}
             onValueChanged={this.props.onPathChanged}
           />
           <Button onClick={this.props.onChooseDirectory}>Choose…</Button>
         </Row>
+
+        <MultiCloneNote checked={checked} conflicts={conflicts} />
       </DialogContent>
     )
   }

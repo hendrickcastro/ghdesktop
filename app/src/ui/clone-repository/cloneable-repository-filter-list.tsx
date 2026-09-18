@@ -9,14 +9,16 @@ import {
 } from './group-repositories'
 import memoizeOne from 'memoize-one'
 import { Button } from '../lib/button'
-import { IMatches } from '../../lib/fuzzy-find'
+import { IMatches, match } from '../../lib/fuzzy-find'
 import { Octicon, syncClockwise } from '../octicons'
 import { HighlightText } from '../lib/highlight-text'
 import { ClickSource } from '../lib/list'
 import { LinkButton } from '../lib/link-button'
 import { Ref } from '../lib/ref'
-import { SectionFilterList } from '../lib/section-filter-list'
+import { SectionFilterList, getText } from '../lib/section-filter-list'
 import { TooltippedContent } from '../lib/tooltipped-content'
+import { Checkbox, CheckboxValue } from '../lib/checkbox'
+import { ICloneCandidate, cloneCandidateFromAPIRepository } from './multi-clone'
 
 interface ICloneableRepositoryFilterListProps {
   /** The account to clone from. */
@@ -78,6 +80,24 @@ interface ICloneableRepositoryFilterListProps {
   ) => void
 
   readonly renderPreFilter?: () => JSX.Element | null
+
+  /**
+   * Repositories ticked for cloning together, by clone URL. Providing this
+   * along with onCheckedChanged adds a checkbox to every row, every owner
+   * group, and the filter row.
+   */
+  readonly checked?: ReadonlyMap<string, ICloneCandidate>
+
+  readonly onCheckedChanged?: (
+    candidates: ReadonlyArray<ICloneCandidate>,
+    checked: boolean
+  ) => void
+
+  /**
+   * Ticked repositories whose destination already has something in it, by
+   * clone URL, with the reason. Shown as a badge on the row.
+   */
+  readonly conflicts?: ReadonlyMap<string, string>
 }
 
 const RowHeight = 31
@@ -115,6 +135,29 @@ function findRepositoryForListItem(
   return repositories.find(r => r.clone_url === listItem.url) || null
 }
 
+/**
+ * The items the list is currently showing, per group, using the same matching
+ * the list itself uses so "select all shown" and the list can't disagree.
+ */
+function visibleItemsByGroup(
+  groups: ReadonlyArray<IFilterListGroup<ICloneableRepositoryListItem>>,
+  filterText: string
+): ReadonlyMap<string, ReadonlyArray<ICloneableRepositoryListItem>> {
+  const filter = filterText.toLowerCase()
+  const visible = new Map<string, ReadonlyArray<ICloneableRepositoryListItem>>()
+
+  for (const group of groups) {
+    visible.set(
+      group.identifier,
+      filter === ''
+        ? group.items
+        : match(filter, group.items, getText).map(m => m.item)
+    )
+  }
+
+  return visible
+}
+
 export class CloneableRepositoryFilterList extends React.PureComponent<ICloneableRepositoryFilterListProps> {
   /**
    * A memoized function for grouping repositories for display
@@ -138,6 +181,8 @@ export class CloneableRepositoryFilterList extends React.PureComponent<ICloneabl
    */
   private getSelectedListItem = memoizeOne(findMatchingListItem)
 
+  private getVisible = memoizeOne(visibleItemsByGroup)
+
   public componentDidMount() {
     if (this.props.repositories === null) {
       this.refreshRepositories()
@@ -157,6 +202,13 @@ export class CloneableRepositoryFilterList extends React.PureComponent<ICloneabl
     this.props.onRefreshRepositories(this.props.account)
   }
 
+  private get multiSelect(): boolean {
+    return (
+      this.props.checked !== undefined &&
+      this.props.onCheckedChanged !== undefined
+    )
+  }
+
   private getGroupAriaLabelGetter =
     (groups: ReadonlyArray<IFilterListGroup<ICloneableRepositoryListItem>>) =>
     (group: number) => {
@@ -166,31 +218,132 @@ export class CloneableRepositoryFilterList extends React.PureComponent<ICloneabl
         : groupIdentifier
     }
 
+  private getGroups() {
+    return this.getRepositoryGroups(
+      this.props.repositories,
+      this.props.account.login
+    )
+  }
+
+  private getVisibleItems() {
+    return this.getVisible(this.getGroups(), this.props.filterText)
+  }
+
+  /** The candidates behind a set of list items, in list order. */
+  private toCandidates(items: ReadonlyArray<ICloneableRepositoryListItem>) {
+    const { repositories } = this.props
+
+    if (repositories === null) {
+      return []
+    }
+
+    return items
+      .map(item => findRepositoryForListItem(repositories, item))
+      .filter((r): r is IAPIRepository => r !== null)
+      .map(cloneCandidateFromAPIRepository)
+  }
+
+  /** On, Off or Mixed depending on how many of the items are ticked. */
+  private checkboxValueFor(items: ReadonlyArray<ICloneableRepositoryListItem>) {
+    const checked = this.props.checked
+    const ticked =
+      checked === undefined ? 0 : items.filter(i => checked.has(i.url)).length
+
+    return ticked === 0
+      ? CheckboxValue.Off
+      : ticked === items.length
+      ? CheckboxValue.On
+      : CheckboxValue.Mixed
+  }
+
+  private onToggleItem =
+    (item: ICloneableRepositoryListItem) =>
+    (event: React.FormEvent<HTMLInputElement>) => {
+      this.props.onCheckedChanged?.(
+        this.toCandidates([item]),
+        event.currentTarget.checked
+      )
+    }
+
+  private onToggleGroup =
+    (identifier: string) => (event: React.FormEvent<HTMLInputElement>) => {
+      const items = this.getVisibleItems().get(identifier) ?? []
+      this.props.onCheckedChanged?.(
+        this.toCandidates(items),
+        event.currentTarget.checked
+      )
+    }
+
+  private onToggleAllVisible = (event: React.FormEvent<HTMLInputElement>) => {
+    const items = [...this.getVisibleItems().values()].flat()
+    this.props.onCheckedChanged?.(
+      this.toCandidates(items),
+      event.currentTarget.checked
+    )
+  }
+
   public render() {
-    const { repositories, account, selectedItem } = this.props
+    const { repositories, account, selectedItem, checked, conflicts } =
+      this.props
 
     const groups = this.getRepositoryGroups(repositories, account.login)
     const selectedListItem = this.getSelectedListItem(groups, selectedItem)
 
     return (
       <SectionFilterList<ICloneableRepositoryListItem>
-        className={'clone-github-repo'}
+        className={
+          this.multiSelect ? 'clone-github-repo multi-select' : 'clone-github-repo'
+        }
         rowHeight={RowHeight}
         selectedItem={selectedListItem}
         renderItem={this.renderItem}
         renderGroupHeader={this.renderGroupHeader}
         onSelectionChanged={this.onSelectionChanged}
-        invalidationProps={groups}
+        invalidationProps={{ groups, checked, conflicts }}
         groups={groups}
         filterText={this.props.filterText}
         onFilterTextChanged={this.props.onFilterTextChanged}
         renderNoItems={this.renderNoItems}
         renderPostFilter={this.renderPostFilter}
-        renderPreFilter={this.props.renderPreFilter}
+        renderPreFilter={this.renderPreFilter}
         onItemClick={this.props.onItemClicked ? this.onItemClick : undefined}
         placeholderText={'Filter your repositories'}
         getGroupAriaLabel={this.getGroupAriaLabelGetter(groups)}
       />
+    )
+  }
+
+  private renderPreFilter = () => {
+    const custom = this.props.renderPreFilter?.() ?? null
+
+    if (!this.multiSelect) {
+      return custom
+    }
+
+    const items = [...this.getVisibleItems().values()].flat()
+
+    if (items.length === 0) {
+      return custom
+    }
+
+    const checked = this.props.checked
+    const ticked =
+      checked === undefined ? 0 : items.filter(i => checked.has(i.url)).length
+
+    return (
+      <>
+        {custom}
+        <Checkbox
+          className="multi-clone-select-all"
+          value={this.checkboxValueFor(items)}
+          onChange={this.onToggleAllVisible}
+          label={
+            this.props.filterText === ''
+              ? `All (${ticked}/${items.length})`
+              : `All shown (${ticked}/${items.length})`
+          }
+        />
+      </>
     )
   }
 
@@ -230,9 +383,24 @@ export class CloneableRepositoryFilterList extends React.PureComponent<ICloneabl
     if (identifier === YourRepositoriesIdentifier) {
       header = this.getYourRepositoriesLabel()
     }
+
+    if (!this.multiSelect) {
+      return (
+        <div className="clone-repository-list-content clone-repository-list-group-header">
+          {header}
+        </div>
+      )
+    }
+
+    const items = this.getVisibleItems().get(identifier) ?? []
+
     return (
       <div className="clone-repository-list-content clone-repository-list-group-header">
-        {header}
+        <Checkbox
+          value={this.checkboxValueFor(items)}
+          onChange={this.onToggleGroup(identifier)}
+        />
+        <span className="group-name">{header}</span>
       </div>
     )
   }
@@ -241,8 +409,20 @@ export class CloneableRepositoryFilterList extends React.PureComponent<ICloneabl
     item: ICloneableRepositoryListItem,
     matches: IMatches
   ) => {
+    const conflict = this.props.conflicts?.get(item.url)
+
     return (
       <div className="clone-repository-list-item">
+        {this.multiSelect && (
+          <Checkbox
+            value={
+              this.props.checked?.has(item.url)
+                ? CheckboxValue.On
+                : CheckboxValue.Off
+            }
+            onChange={this.onToggleItem(item)}
+          />
+        )}
         <Octicon className="icon" symbol={item.icon} />
         <TooltippedContent
           className="name"
@@ -253,6 +433,15 @@ export class CloneableRepositoryFilterList extends React.PureComponent<ICloneabl
           <HighlightText text={item.text[0]} highlight={matches.title} />
         </TooltippedContent>
         {item.archived && <div className="archived">Archived</div>}
+        {conflict !== undefined && (
+          <TooltippedContent
+            className="conflict"
+            tooltip={conflict}
+            tagName="div"
+          >
+            Already exists
+          </TooltippedContent>
+        )}
       </div>
     )
   }

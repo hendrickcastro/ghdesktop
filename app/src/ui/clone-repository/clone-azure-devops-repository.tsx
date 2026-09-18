@@ -22,6 +22,12 @@ import {
   fetchAzureDevOpsRepositories,
 } from '../../lib/azure-devops/azure-devops'
 import { ICloneableRepositoryListItem } from './group-repositories'
+import {
+  ICloneCandidate,
+  MultiCloneNote,
+  cloneCandidateFromAzureDevOps,
+  pathFieldLabel,
+} from './multi-clone'
 
 interface ICloneAzureDevOpsRepositoryProps {
   /** Every organization the user has connected. Never empty here. */
@@ -57,10 +63,10 @@ interface ICloneAzureDevOpsRepositoryProps {
    * Repositories ticked for cloning together, by clone URL. Ticking any puts
    * the tab in multi-clone mode.
    */
-  readonly checked: ReadonlyMap<string, IAzureDevOpsRepository>
+  readonly checked: ReadonlyMap<string, ICloneCandidate>
 
   readonly onCheckedChanged: (
-    repositories: ReadonlyArray<IAzureDevOpsRepository>,
+    candidates: ReadonlyArray<ICloneCandidate>,
     checked: boolean
   ) => void
 
@@ -241,10 +247,11 @@ export class CloneAzureDevOpsRepository extends React.Component<
     return this.state.repositories?.find(r => r.cloneUrl === item.url) ?? null
   }
 
-  private findRepositories(items: ReadonlyArray<ICloneableRepositoryListItem>) {
+  private toCandidates(items: ReadonlyArray<ICloneableRepositoryListItem>) {
     return items
       .map(item => this.findRepository(item))
       .filter((r): r is IAzureDevOpsRepository => r !== null)
+      .map(cloneCandidateFromAzureDevOps)
   }
 
   private onSelectionChanged = (item: ICloneableRepositoryListItem | null) => {
@@ -267,18 +274,17 @@ export class CloneAzureDevOpsRepository extends React.Component<
   private onToggleItem =
     (item: ICloneableRepositoryListItem) =>
     (event: React.FormEvent<HTMLInputElement>) => {
-      const repository = this.findRepository(item)
-
-      if (repository !== null) {
-        this.props.onCheckedChanged([repository], event.currentTarget.checked)
-      }
+      this.props.onCheckedChanged(
+        this.toCandidates([item]),
+        event.currentTarget.checked
+      )
     }
 
   private onToggleGroup =
     (identifier: string) => (event: React.FormEvent<HTMLInputElement>) => {
       const items = this.getVisibleItems().get(identifier) ?? []
       this.props.onCheckedChanged(
-        this.findRepositories(items),
+        this.toCandidates(items),
         event.currentTarget.checked
       )
     }
@@ -286,7 +292,7 @@ export class CloneAzureDevOpsRepository extends React.Component<
   private onToggleAllVisible = (event: React.FormEvent<HTMLInputElement>) => {
     const items = [...this.getVisibleItems().values()].flat()
     this.props.onCheckedChanged(
-      this.findRepositories(items),
+      this.toCandidates(items),
       event.currentTarget.checked
     )
   }
@@ -321,7 +327,6 @@ export class CloneAzureDevOpsRepository extends React.Component<
             .find(i => i.url === selectedItem.cloneUrl) ?? null
 
     const multiple = checked.size > 0
-    const toClone = checked.size - conflicts.size
 
     return (
       <DialogContent className="clone-github-repository-content">
@@ -343,7 +348,7 @@ export class CloneAzureDevOpsRepository extends React.Component<
 
         <Row>
           <SectionFilterList<ICloneableRepositoryListItem>
-            className="clone-github-repo clone-azure-devops"
+            className="clone-github-repo multi-select"
             rowHeight={RowHeight}
             selectedItem={selectedListItem}
             renderItem={this.renderItem}
@@ -364,32 +369,14 @@ export class CloneAzureDevOpsRepository extends React.Component<
         <Row className="local-path-field">
           <TextBox
             value={this.props.path}
-            label={
-              multiple
-                ? __DARWIN__
-                  ? 'Local Folder'
-                  : 'Local folder'
-                : __DARWIN__
-                ? 'Local Path'
-                : 'Local path'
-            }
+            label={pathFieldLabel(multiple)}
             placeholder={multiple ? 'parent folder' : 'repository path'}
             onValueChanged={this.props.onPathChanged}
           />
           <Button onClick={this.props.onChooseDirectory}>Choose…</Button>
         </Row>
 
-        {multiple && (
-          <p className="clone-azure-devops-note">
-            {toClone === 1
-              ? 'The repository is cloned into its own subfolder here.'
-              : `Each of the ${toClone} repositories is cloned into its own subfolder here.`}
-            {conflicts.size > 0 &&
-              ` ${conflicts.size} ${
-                conflicts.size === 1 ? 'is' : 'are'
-              } already there and will be skipped.`}
-          </p>
-        )}
+        <MultiCloneNote checked={checked} conflicts={conflicts} />
       </DialogContent>
     )
   }
@@ -405,7 +392,7 @@ export class CloneAzureDevOpsRepository extends React.Component<
 
     return (
       <Checkbox
-        className="clone-azure-devops-select-all"
+        className="multi-clone-select-all"
         value={this.checkboxValueFor(items)}
         onChange={this.onToggleAllVisible}
         label={
@@ -425,7 +412,6 @@ export class CloneAzureDevOpsRepository extends React.Component<
         <Checkbox
           value={this.checkboxValueFor(items)}
           onChange={this.onToggleGroup(identifier)}
-          ariaLabelledBy={undefined}
         />
         <span className="group-name">{identifier}</span>
       </div>
