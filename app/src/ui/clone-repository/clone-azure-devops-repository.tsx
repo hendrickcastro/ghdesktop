@@ -5,9 +5,10 @@ import { TextBox } from '../lib/text-box'
 import { Row } from '../lib/row'
 import { Button } from '../lib/button'
 import { Select } from '../lib/select'
-import { SectionFilterList } from '../lib/section-filter-list'
+import { Checkbox, CheckboxValue } from '../lib/checkbox'
+import { SectionFilterList, getText } from '../lib/section-filter-list'
 import { IFilterListGroup } from '../lib/filter-list'
-import { IMatches } from '../../lib/fuzzy-find'
+import { IMatches, match } from '../../lib/fuzzy-find'
 import { Octicon, syncClockwise } from '../octicons'
 import * as octicons from '../octicons/octicons.generated'
 import { HighlightText } from '../lib/highlight-text'
@@ -31,7 +32,10 @@ interface ICloneAzureDevOpsRepositoryProps {
 
   readonly onOrganizationChanged: (organization: IAzureDevOpsOrganization) => void
 
-  /** The path to clone to. */
+  /**
+   * The path to clone to: one repository's folder normally, the parent folder
+   * of every ticked repository while any are ticked.
+   */
   readonly path: string
 
   /** Called when the destination path changes. */
@@ -42,12 +46,29 @@ interface ICloneAzureDevOpsRepositoryProps {
    */
   readonly onChooseDirectory: () => Promise<string | undefined>
 
-  /** The currently selected repository, or null if none is. */
+  /** The highlighted repository, or null if none is. */
   readonly selectedItem: IAzureDevOpsRepository | null
 
   readonly onSelectionChanged: (
     selectedItem: IAzureDevOpsRepository | null
   ) => void
+
+  /**
+   * Repositories ticked for cloning together, by clone URL. Ticking any puts
+   * the tab in multi-clone mode.
+   */
+  readonly checked: ReadonlyMap<string, IAzureDevOpsRepository>
+
+  readonly onCheckedChanged: (
+    repositories: ReadonlyArray<IAzureDevOpsRepository>,
+    checked: boolean
+  ) => void
+
+  /**
+   * Ticked repositories whose destination folder already has something in it,
+   * by clone URL, with the reason. These are shown and left out of the clone.
+   */
+  readonly conflicts: ReadonlyMap<string, string>
 
   /** The contents of the filter text box. */
   readonly filterText: string
@@ -117,14 +138,38 @@ function groupByProject(
 }
 
 /**
- * The Azure DevOps tab of the clone dialog: pick an organization, pick a
- * repository, pick where it goes.
+ * The items the list is currently showing, per group, using the same matching
+ * the list itself uses so "select all shown" and the list can't disagree.
+ */
+function visibleItemsByGroup(
+  groups: ReadonlyArray<IFilterListGroup<ICloneableRepositoryListItem>>,
+  filterText: string
+): ReadonlyMap<string, ReadonlyArray<ICloneableRepositoryListItem>> {
+  const filter = filterText.toLowerCase()
+  const visible = new Map<string, ReadonlyArray<ICloneableRepositoryListItem>>()
+
+  for (const group of groups) {
+    visible.set(
+      group.identifier,
+      filter === ''
+        ? group.items
+        : match(filter, group.items, getText).map(m => m.item)
+    )
+  }
+
+  return visible
+}
+
+/**
+ * The Azure DevOps tab of the clone dialog: pick an organization, pick one
+ * repository - or tick several - and pick where they go.
  */
 export class CloneAzureDevOpsRepository extends React.Component<
   ICloneAzureDevOpsRepositoryProps,
   ICloneAzureDevOpsRepositoryState
 > {
   private getGroups = memoizeOne(groupByProject)
+  private getVisible = memoizeOne(visibleItemsByGroup)
 
   public constructor(props: ICloneAzureDevOpsRepositoryProps) {
     super(props)
@@ -196,6 +241,12 @@ export class CloneAzureDevOpsRepository extends React.Component<
     return this.state.repositories?.find(r => r.cloneUrl === item.url) ?? null
   }
 
+  private findRepositories(items: ReadonlyArray<ICloneableRepositoryListItem>) {
+    return items
+      .map(item => this.findRepository(item))
+      .filter((r): r is IAzureDevOpsRepository => r !== null)
+  }
+
   private onSelectionChanged = (item: ICloneableRepositoryListItem | null) => {
     this.props.onSelectionChanged(
       item === null ? null : this.findRepository(item)
@@ -213,8 +264,54 @@ export class CloneAzureDevOpsRepository extends React.Component<
     }
   }
 
+  private onToggleItem =
+    (item: ICloneableRepositoryListItem) =>
+    (event: React.FormEvent<HTMLInputElement>) => {
+      const repository = this.findRepository(item)
+
+      if (repository !== null) {
+        this.props.onCheckedChanged([repository], event.currentTarget.checked)
+      }
+    }
+
+  private onToggleGroup =
+    (identifier: string) => (event: React.FormEvent<HTMLInputElement>) => {
+      const items = this.getVisibleItems().get(identifier) ?? []
+      this.props.onCheckedChanged(
+        this.findRepositories(items),
+        event.currentTarget.checked
+      )
+    }
+
+  private onToggleAllVisible = (event: React.FormEvent<HTMLInputElement>) => {
+    const items = [...this.getVisibleItems().values()].flat()
+    this.props.onCheckedChanged(
+      this.findRepositories(items),
+      event.currentTarget.checked
+    )
+  }
+
+  private getVisibleItems() {
+    return this.getVisible(
+      this.getGroups(this.state.repositories),
+      this.props.filterText
+    )
+  }
+
+  /** On, Off or Mixed depending on how many of the items are ticked. */
+  private checkboxValueFor(items: ReadonlyArray<ICloneableRepositoryListItem>) {
+    const ticked = items.filter(i => this.props.checked.has(i.url)).length
+
+    return ticked === 0
+      ? CheckboxValue.Off
+      : ticked === items.length
+      ? CheckboxValue.On
+      : CheckboxValue.Mixed
+  }
+
   public render() {
-    const { organizations, organization, selectedItem } = this.props
+    const { organizations, organization, selectedItem, checked, conflicts } =
+      this.props
     const groups = this.getGroups(this.state.repositories)
     const selectedListItem =
       selectedItem === null
@@ -222,6 +319,9 @@ export class CloneAzureDevOpsRepository extends React.Component<
         : groups
             .flatMap(g => g.items)
             .find(i => i.url === selectedItem.cloneUrl) ?? null
+
+    const multiple = checked.size > 0
+    const toClone = checked.size - conflicts.size
 
     return (
       <DialogContent className="clone-github-repository-content">
@@ -243,18 +343,19 @@ export class CloneAzureDevOpsRepository extends React.Component<
 
         <Row>
           <SectionFilterList<ICloneableRepositoryListItem>
-            className="clone-github-repo"
+            className="clone-github-repo clone-azure-devops"
             rowHeight={RowHeight}
             selectedItem={selectedListItem}
             renderItem={this.renderItem}
             renderGroupHeader={this.renderGroupHeader}
             onSelectionChanged={this.onSelectionChanged}
             onItemClick={this.onItemClick}
-            invalidationProps={groups}
+            invalidationProps={{ groups, checked, conflicts }}
             groups={groups}
             filterText={this.props.filterText}
             onFilterTextChanged={this.props.onFilterTextChanged}
             renderNoItems={this.renderNoItems}
+            renderPreFilter={this.renderSelectAll}
             renderPostFilter={this.renderPostFilter}
             placeholderText="Filter repositories"
           />
@@ -263,38 +364,111 @@ export class CloneAzureDevOpsRepository extends React.Component<
         <Row className="local-path-field">
           <TextBox
             value={this.props.path}
-            label={__DARWIN__ ? 'Local Path' : 'Local path'}
-            placeholder="repository path"
+            label={
+              multiple
+                ? __DARWIN__
+                  ? 'Local Folder'
+                  : 'Local folder'
+                : __DARWIN__
+                ? 'Local Path'
+                : 'Local path'
+            }
+            placeholder={multiple ? 'parent folder' : 'repository path'}
             onValueChanged={this.props.onPathChanged}
           />
           <Button onClick={this.props.onChooseDirectory}>Choose…</Button>
         </Row>
+
+        {multiple && (
+          <p className="clone-azure-devops-note">
+            {toClone === 1
+              ? 'The repository is cloned into its own subfolder here.'
+              : `Each of the ${toClone} repositories is cloned into its own subfolder here.`}
+            {conflicts.size > 0 &&
+              ` ${conflicts.size} ${
+                conflicts.size === 1 ? 'is' : 'are'
+              } already there and will be skipped.`}
+          </p>
+        )}
       </DialogContent>
     )
   }
 
-  private renderGroupHeader = (identifier: string) => (
-    <div className="clone-repository-list-content clone-repository-list-group-header">
-      {identifier}
-    </div>
-  )
+  private renderSelectAll = () => {
+    const items = [...this.getVisibleItems().values()].flat()
+
+    if (items.length === 0) {
+      return null
+    }
+
+    const ticked = items.filter(i => this.props.checked.has(i.url)).length
+
+    return (
+      <Checkbox
+        className="clone-azure-devops-select-all"
+        value={this.checkboxValueFor(items)}
+        onChange={this.onToggleAllVisible}
+        label={
+          this.props.filterText === ''
+            ? `All (${ticked}/${items.length})`
+            : `All shown (${ticked}/${items.length})`
+        }
+      />
+    )
+  }
+
+  private renderGroupHeader = (identifier: string) => {
+    const items = this.getVisibleItems().get(identifier) ?? []
+
+    return (
+      <div className="clone-repository-list-content clone-repository-list-group-header">
+        <Checkbox
+          value={this.checkboxValueFor(items)}
+          onChange={this.onToggleGroup(identifier)}
+          ariaLabelledBy={undefined}
+        />
+        <span className="group-name">{identifier}</span>
+      </div>
+    )
+  }
 
   private renderItem = (
     item: ICloneableRepositoryListItem,
     matches: IMatches
-  ) => (
-    <div className="clone-repository-list-item">
-      <Octicon className="icon" symbol={item.icon} />
-      <TooltippedContent
-        className="name"
-        tooltip={item.text[0]}
-        onlyWhenOverflowed={true}
-        tagName="div"
-      >
-        <HighlightText text={item.text[0]} highlight={matches.title} />
-      </TooltippedContent>
-    </div>
-  )
+  ) => {
+    const conflict = this.props.conflicts.get(item.url)
+
+    return (
+      <div className="clone-repository-list-item">
+        <Checkbox
+          value={
+            this.props.checked.has(item.url)
+              ? CheckboxValue.On
+              : CheckboxValue.Off
+          }
+          onChange={this.onToggleItem(item)}
+        />
+        <Octicon className="icon" symbol={item.icon} />
+        <TooltippedContent
+          className="name"
+          tooltip={item.text[0]}
+          onlyWhenOverflowed={true}
+          tagName="div"
+        >
+          <HighlightText text={item.text[0]} highlight={matches.title} />
+        </TooltippedContent>
+        {conflict !== undefined && (
+          <TooltippedContent
+            className="conflict"
+            tooltip={conflict}
+            tagName="div"
+          >
+            Already exists
+          </TooltippedContent>
+        )}
+      </div>
+    )
+  }
 
   private renderPostFilter = () => {
     const tooltip = 'Refresh the list of repositories'

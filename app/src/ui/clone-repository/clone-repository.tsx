@@ -175,6 +175,20 @@ interface IAzureTabState extends IBaseTabState {
    * organization", so the tab has something to show without a click.
    */
   readonly organization: string | null
+
+  /**
+   * Repositories ticked for cloning together, by clone URL. While this is
+   * non-empty the tab is in multi-clone mode: `path` is the parent folder and
+   * each repository goes into its own subfolder under it.
+   */
+  readonly checked: ReadonlyMap<string, IAzureDevOpsRepository>
+
+  /**
+   * Ticked repositories whose destination already has something in it, by
+   * clone URL, with the reason. Recomputed as repositories are ticked and as
+   * the path changes; these are shown as conflicts and left out of the clone.
+   */
+  readonly conflicts: ReadonlyMap<string, string>
 }
 
 /** The component for cloning a repository. */
@@ -240,6 +254,8 @@ export class CloneRepository extends React.Component<
         filterText: '',
         selectedItem: null,
         organization: null,
+        checked: new Map(),
+        conflicts: new Map(),
         ...initialBaseTabState,
       },
     }
@@ -340,6 +356,17 @@ export class CloneRepository extends React.Component<
   }
 
   private checkIfCloningDisabled = () => {
+    if (this.isAzureMultiClone()) {
+      const { checked, conflicts, path } = this.state.azureTabState
+
+      return (
+        this.state.loading ||
+        path == null ||
+        path.length === 0 ||
+        checked.size - conflicts.size === 0
+      )
+    }
+
     const tabState = this.getSelectedTabState()
     const { error, url, path } = tabState
     const { loading } = this.state
@@ -372,9 +399,21 @@ export class CloneRepository extends React.Component<
 
     const disabled = this.checkIfCloningDisabled()
 
+    let okButtonText = 'Clone'
+
+    if (this.isAzureMultiClone()) {
+      const { checked, conflicts } = this.state.azureTabState
+      const count = checked.size - conflicts.size
+      okButtonText =
+        count === 1 ? 'Clone 1 Repository' : `Clone ${count} Repositories`
+    }
+
     return (
       <DialogFooter>
-        <OkCancelButtonGroup okButtonText="Clone" okButtonDisabled={disabled} />
+        <OkCancelButtonGroup
+          okButtonText={okButtonText}
+          okButtonDisabled={disabled}
+        />
       </DialogFooter>
     )
   }
@@ -458,6 +497,9 @@ export class CloneRepository extends React.Component<
             onChooseDirectory={this.onChooseDirectory}
             selectedItem={tabState.selectedItem}
             onSelectionChanged={this.onAzureSelectionChanged}
+            checked={tabState.checked}
+            onCheckedChanged={this.onAzureCheckedChanged}
+            conflicts={tabState.conflicts}
             filterText={tabState.filterText}
             onFilterTextChanged={this.onFilterTextChanged}
             onItemClicked={this.onAzureItemClicked}
@@ -489,13 +531,15 @@ export class CloneRepository extends React.Component<
   private onAzureOrganizationChanged = (
     organization: IAzureDevOpsOrganization
   ) => {
-    // Selection and filter belong to the organization they were made in.
+    // Selection, ticks and filter belong to the organization they were made in.
     this.setState(prevState => ({
       azureTabState: {
         ...prevState.azureTabState,
         organization: organization.name,
         selectedItem: null,
         filterText: '',
+        checked: new Map(),
+        conflicts: new Map(),
       },
     }))
     this.updateUrl('')
@@ -507,7 +551,159 @@ export class CloneRepository extends React.Component<
     this.setState(prevState => ({
       azureTabState: { ...prevState.azureTabState, selectedItem },
     }))
-    this.updateUrl(selectedItem === null ? '' : selectedItem.cloneUrl)
+
+    // In multi-clone mode the path is the parent folder for every ticked
+    // repository; highlighting a row must not turn it into that row's folder.
+    if (!this.isAzureMultiClone()) {
+      this.updateUrl(selectedItem === null ? '' : selectedItem.cloneUrl)
+    }
+  }
+
+  /** Whether the Azure DevOps tab is cloning a ticked set rather than one repository. */
+  private isAzureMultiClone(): boolean {
+    return (
+      this.props.selectedTab === CloneRepositoryTab.AzureDevOps &&
+      this.state.azureTabState.checked.size > 0
+    )
+  }
+
+  private onAzureCheckedChanged = (
+    repositories: ReadonlyArray<IAzureDevOpsRepository>,
+    checked: boolean
+  ) => {
+    const before = this.state.azureTabState
+    const next = new Map(before.checked)
+
+    for (const repository of repositories) {
+      if (checked) {
+        next.set(repository.cloneUrl, repository)
+      } else {
+        next.delete(repository.cloneUrl)
+      }
+    }
+
+    // Entering multi-clone mode: the path stops being one repository's folder
+    // and becomes the parent every ticked repository is cloned under, so drop
+    // the repository name that single mode appended to it.
+    let path = before.path
+    if (
+      before.checked.size === 0 &&
+      next.size > 0 &&
+      before.lastParsedIdentifier !== null &&
+      path !== null
+    ) {
+      path = Path.dirname(path)
+    }
+
+    this.setState(
+      prevState => ({
+        azureTabState: {
+          ...prevState.azureTabState,
+          checked: next,
+          conflicts: new Map(),
+          path,
+        },
+      }),
+      () => {
+        if (next.size === 0) {
+          // Back to single mode: give the highlighted repository its folder
+          // back. Clearing the parsed identifier first makes updateUrl append
+          // the name to the parent rather than replace a name that isn't there.
+          const selected = this.state.azureTabState.selectedItem
+          this.setSelectedTabState({ lastParsedIdentifier: null }, () =>
+            this.updateUrl(selected === null ? '' : selected.cloneUrl)
+          )
+        } else {
+          this.refreshAzureConflicts()
+        }
+      }
+    )
+  }
+
+  /**
+   * Checks each ticked repository's destination on disk and records the ones
+   * that already have something in them, so the user sees the conflict as they
+   * tick rather than as a failed clone afterwards.
+   */
+  private async refreshAzureConflicts() {
+    const { checked, path } = this.state.azureTabState
+
+    if (checked.size === 0 || path === null || path === '') {
+      return
+    }
+
+    const results = await Promise.all(
+      [...checked.values()].map(async repository => {
+        const error = await this.validateEmptyFolder(
+          Path.join(path, repository.name)
+        )
+        return [repository.cloneUrl, error?.message ?? null] as const
+      })
+    )
+
+    // The user may have ticked, unticked or retyped while we were on disk.
+    const now = this.state.azureTabState
+    if (now.path !== path || now.checked !== checked) {
+      return
+    }
+
+    const conflicts = new Map<string, string>()
+    for (const [cloneUrl, message] of results) {
+      if (message !== null) {
+        conflicts.set(cloneUrl, message)
+      }
+    }
+
+    this.setState(prevState => ({
+      azureTabState: { ...prevState.azureTabState, conflicts },
+    }))
+  }
+
+  /**
+   * Clones every ticked repository that has no conflict, each into its own
+   * subfolder of the chosen parent.
+   *
+   * The dialog closes first: each clone shows its own progress in the sidebar,
+   * which is more useful than a spinner here. A few run at a time - dozens at
+   * once would mostly fight each other for bandwidth.
+   */
+  private cloneCheckedAzureRepositories = async () => {
+    const { checked, conflicts, path } = this.state.azureTabState
+
+    if (path === null || path === '') {
+      return
+    }
+
+    const repositories = [...checked.values()].filter(
+      r => !conflicts.has(r.cloneUrl)
+    )
+
+    if (repositories.length === 0) {
+      return
+    }
+
+    this.props.dispatcher.closeFoldout(FoldoutType.Repository)
+    this.props.onDismissed()
+    setDefaultDir(path)
+
+    const queue = [...repositories]
+    const worker = async () => {
+      for (let r = queue.shift(); r !== undefined; r = queue.shift()) {
+        try {
+          await this.props.dispatcher.clone(
+            r.cloneUrl,
+            Path.join(path, r.name),
+            { defaultBranch: r.defaultBranch ?? undefined }
+          )
+        } catch (e) {
+          log.error(`CloneRepository: cloning ${r.cloneUrl} failed`, e)
+        }
+      }
+    }
+
+    await Promise.all(
+      Array.from({ length: Math.min(3, queue.length) }, worker)
+    )
   }
 
   private onAzureItemClicked = (
@@ -740,6 +936,18 @@ export class CloneRepository extends React.Component<
   }
 
   private validatePath = async () => {
+    if (this.isAzureMultiClone()) {
+      // The path is a parent folder here, and a parent full of other
+      // repositories is exactly what we expect, so the "folder must be empty"
+      // rule doesn't apply. Conflicts are checked per repository instead.
+      if (this.state.azureTabState.error !== null) {
+        this.setSelectedTabState({ error: null })
+      }
+
+      this.refreshAzureConflicts()
+      return
+    }
+
     const tabState = this.getSelectedTabState()
     const { path, url, error } = tabState
     const { initialPath } = this.state
@@ -784,9 +992,11 @@ export class CloneRepository extends React.Component<
 
     const tabState = this.getSelectedTabState()
     const lastParsedIdentifier = tabState.lastParsedIdentifier
-    const directory = lastParsedIdentifier
-      ? Path.join(path, lastParsedIdentifier.name)
-      : path
+    // In multi-clone mode the chosen folder is the parent itself.
+    const directory =
+      lastParsedIdentifier && !this.isAzureMultiClone()
+        ? Path.join(path, lastParsedIdentifier.name)
+        : path
 
     this.setSelectedTabState(
       { path: directory, error: null },
@@ -940,6 +1150,10 @@ export class CloneRepository extends React.Component<
   }
 
   private clone = async () => {
+    if (this.isAzureMultiClone()) {
+      return this.cloneCheckedAzureRepositories()
+    }
+
     this.setState({ loading: true })
 
     const cloneInfo = await this.resolveCloneInfo()

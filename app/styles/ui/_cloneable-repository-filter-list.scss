@@ -33,3 +33,47 @@
     }
   }
 }
+
+// The Azure DevOps tab adds a checkbox per row and per team project so several
+// repositories can be cloned at once, plus a badge for destinations that
+// already exist.
+.clone-azure-devops {
+  .clone-repository-list-item,
+  .clone-repository-list-group-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-half);
+
+    .checkbox-component {
+      flex-shrink: 0;
+      margin: 0;
+    }
+  }
+
+  .clone-repository-list-group-header .group-name {
+    flex-grow: 1;
+  }
+
+  .clone-repository-list-item .conflict {
+    flex-shrink: 0;
+    margin-left: var(--spacing-half);
+    font-size: var(--font-size-xs);
+    border: var(--contrast-border);
+    padding: 1px 3px;
+    border-radius: var(--border-radius);
+    text-transform: uppercase;
+    color: var(--color-modified);
+  }
+}
+
+.clone-azure-devops-select-all {
+  flex-shrink: 0;
+  margin-right: var(--spacing-half);
+  white-space: nowrap;
+}
+
+.clone-azure-devops-note {
+  margin: var(--spacing-half) 0 0;
+  color: var(--text-secondary-color);
+  font-size: var(--font-size-sm);
+}
