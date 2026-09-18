@@ -22,12 +22,6 @@ const memoizedGetGenericPassword = memoizeOne(
     getGenericPassword(endpoint, login)
 )
 
-/** Same idea, for the organization-level Azure DevOps credential. */
-const memoizedGetAzureDevOpsCredential = memoizeOne(
-  (_trampolineToken: string, organization: string) =>
-    getAzureDevOpsCredential(organization)
-)
-
 export async function findGitHubTrampolineAccount(
   accountsStore: AccountsStore,
   remoteUrl: string
@@ -52,10 +46,7 @@ export async function findGenericTrampolineAccount(
   // own item, and macOS asks permission per item whenever the app's signature
   // changes - which for an ad-hoc signed build is every update. Reading the one
   // organization item instead turns dozens of prompts into one.
-  const azure = await findAzureDevOpsTrampolineAccount(
-    trampolineToken,
-    endpoint
-  )
+  const azure = await findAzureDevOpsTrampolineAccount(endpoint)
 
   if (azure) {
     return azure
@@ -94,10 +85,7 @@ export async function findGenericTrampolineAccount(
  * https://dev.azure.com - the only case we can answer is a user with a single
  * connected organization; with several there's no telling which one git wants.
  */
-export async function findAzureDevOpsTrampolineAccount(
-  trampolineToken: string,
-  endpoint: string
-) {
+export async function findAzureDevOpsTrampolineAccount(endpoint: string) {
   const remote = parseAzureDevOpsRemote(endpoint)
   const bareHost = new URL(endpoint).hostname.toLowerCase() === 'dev.azure.com'
 
@@ -119,10 +107,9 @@ export async function findAzureDevOpsTrampolineAccount(
     return undefined
   }
 
-  const credential = await memoizedGetAzureDevOpsCredential(
-    trampolineToken,
-    organization.name
-  )
+  // Cached for the session inside getAzureDevOpsCredential, so this is one
+  // credential store read per organization per launch, not one per request.
+  const credential = await getAzureDevOpsCredential(organization.name)
 
   if (credential === null) {
     log.warn(

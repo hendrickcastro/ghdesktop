@@ -41,6 +41,24 @@ export interface IAzureDevOpsRepository {
 
 const OrganizationsKey = 'azureDevOpsOrganizations'
 
+/**
+ * Organization credentials read from the credential store this session.
+ *
+ * Every read of a keychain item is a permission prompt when the app's
+ * signature isn't yet trusted for that item - and with ad-hoc signed builds the
+ * signature changes on every update. The background fetcher reads once per
+ * repository per cycle, so without this a user with many repositories saw the
+ * prompt continuously until they chose "Always Allow". Reading once per launch
+ * caps it at one prompt per organization.
+ *
+ * Held in a module-level map rather than app state, so the PAT stays out of
+ * state dumps, logs and crash reports - the same place GitHub tokens live.
+ */
+const sessionCredentials = new Map<
+  string,
+  { readonly username: string; readonly pat: string }
+>()
+
 const ApiVersion = '7.1'
 
 /**
@@ -56,9 +74,8 @@ export function getAzureDevOpsEndpoint(organization: string): string {
 
 /** Every organization the user has connected, in the order they were added. */
 export function getAzureDevOpsOrganizations(): ReadonlyArray<IAzureDevOpsOrganization> {
-  const stored = getObject<ReadonlyArray<IAzureDevOpsOrganization>>(
-    OrganizationsKey
-  )
+  const stored =
+    getObject<ReadonlyArray<IAzureDevOpsOrganization>>(OrganizationsKey)
 
   return Array.isArray(stored)
     ? stored.filter(
@@ -67,13 +84,9 @@ export function getAzureDevOpsOrganizations(): ReadonlyArray<IAzureDevOpsOrganiz
     : []
 }
 
-function findOrganization(
-  name: string
-): IAzureDevOpsOrganization | undefined {
+function findOrganization(name: string): IAzureDevOpsOrganization | undefined {
   const lower = name.toLowerCase()
-  return getAzureDevOpsOrganizations().find(
-    o => o.name.toLowerCase() === lower
-  )
+  return getAzureDevOpsOrganizations().find(o => o.name.toLowerCase() === lower)
 }
 
 /**
@@ -96,6 +109,7 @@ export async function saveAzureDevOpsOrganization(
   }
 
   await setGenericCredential(endpoint, username, pat)
+  sessionCredentials.set(name.toLowerCase(), { username, pat })
 
   const others = getAzureDevOpsOrganizations().filter(
     o => o.name.toLowerCase() !== name.toLowerCase()
@@ -108,6 +122,7 @@ export async function removeAzureDevOpsOrganization(
   name: string
 ): Promise<void> {
   const existing = findOrganization(name)
+  sessionCredentials.delete(name.toLowerCase())
 
   if (existing !== undefined) {
     await deleteGenericCredential(
@@ -128,6 +143,12 @@ export async function removeAzureDevOpsOrganization(
 export async function getAzureDevOpsCredential(
   organization: string
 ): Promise<{ readonly username: string; readonly pat: string } | null> {
+  const cached = sessionCredentials.get(organization.toLowerCase())
+
+  if (cached !== undefined) {
+    return cached
+  }
+
   const endpoint = getAzureDevOpsEndpoint(organization)
   const username =
     findOrganization(organization)?.username ?? getGenericUsername(endpoint)
@@ -138,7 +159,14 @@ export async function getAzureDevOpsCredential(
 
   const pat = await getGenericPassword(endpoint, username)
 
-  return pat ? { username, pat } : null
+  if (!pat) {
+    return null
+  }
+
+  const credential = { username, pat }
+  sessionCredentials.set(organization.toLowerCase(), credential)
+
+  return credential
 }
 
 function basicAuth(username: string, pat: string): string {
@@ -169,7 +197,8 @@ async function failedRequestError(response: Response): Promise<Error> {
   const denied = response.status === 401 || response.status === 403
 
   if (denied && detail.trim() === '') {
-    detail = 'the PAT is invalid, has expired, or has no access to this organization'
+    detail =
+      'the PAT is invalid, has expired, or has no access to this organization'
   }
 
   return new Error(
@@ -353,7 +382,11 @@ export async function fetchAzureDevOpsRepositories(
 
   await Promise.all(
     Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
-      for (let project = queue.shift(); project !== undefined; project = queue.shift()) {
+      for (
+        let project = queue.shift();
+        project !== undefined;
+        project = queue.shift()
+      ) {
         await fetchProject(project)
       }
     })

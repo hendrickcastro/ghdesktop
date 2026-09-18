@@ -191,7 +191,7 @@ async function storeCredential(cred: Credential, store: Store, token: string) {
   // nothing to store: the organization item already covers it, and saving a
   // per-repository copy would recreate the one-keychain-item-per-repository
   // pile that made every update prompt once per repository.
-  if (await findAzureDevOpsTrampolineAccount(token, endpoint)) {
+  if (await findAzureDevOpsTrampolineAccount(endpoint)) {
     debug(`not storing a per-repository credential for ${endpoint}`)
     return
   }
