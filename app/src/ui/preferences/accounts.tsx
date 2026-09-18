@@ -13,6 +13,7 @@ import { DialogContent, DialogPreferredFocusClassName } from '../dialog'
 import { Avatar } from '../lib/avatar'
 import { CallToAction } from '../lib/call-to-action'
 import { getHTMLURL } from '../../lib/api'
+import { AzureDevOpsAccounts } from './azure-devops-accounts'
 
 interface IAccountsProps {
   readonly accounts: ReadonlyArray<Account>
@@ -41,6 +42,9 @@ export class Accounts extends React.Component<IAccountsProps, {}> {
 
         <h2>GitHub Enterprise</h2>
         {this.renderMultipleEnterpriseAccounts()}
+
+        <h2>Azure DevOps</h2>
+        <AzureDevOpsAccounts />
       </DialogContent>
     )
   }

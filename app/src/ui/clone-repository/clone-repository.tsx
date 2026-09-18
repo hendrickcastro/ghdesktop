@@ -20,6 +20,14 @@ import { TabBar } from '../tab-bar'
 import { CloneRepositoryTab } from '../../models/clone-repository-tab'
 import { CloneGenericRepository } from './clone-generic-repository'
 import { CloneGithubRepository } from './clone-github-repository'
+import { CloneAzureDevOpsRepository } from './clone-azure-devops-repository'
+import {
+  IAzureDevOpsOrganization,
+  IAzureDevOpsRepository,
+  getAzureDevOpsOrganizations,
+} from '../../lib/azure-devops/azure-devops'
+import { PopupType } from '../../models/popup'
+import { PreferencesTab } from '../../models/preferences'
 import { assertNever } from '../../lib/fatal-error'
 import { CallToAction } from '../lib/call-to-action'
 import { IAccountRepositories } from '../../lib/stores/api-repositories-store'
@@ -103,6 +111,11 @@ interface ICloneRepositoryState {
    * The persisted state of the CloneGenericRepository component.
    */
   readonly urlTabState: IUrlTabState
+
+  /**
+   * The persisted state of the CloneAzureDevOpsRepository component.
+   */
+  readonly azureTabState: IAzureTabState
 }
 
 /**
@@ -150,6 +163,20 @@ interface IGitHubTabState extends IBaseTabState {
   readonly selectedItem: IAPIRepository | null
 }
 
+/**
+ * Persisted state for the CloneAzureDevOpsRepository component.
+ */
+interface IAzureTabState extends IBaseTabState {
+  readonly kind: 'azureTabState'
+  readonly filterText: string
+  readonly selectedItem: IAzureDevOpsRepository | null
+  /**
+   * The organization being browsed, by name. Null means "the first connected
+   * organization", so the tab has something to show without a click.
+   */
+  readonly organization: string | null
+}
+
 /** The component for cloning a repository. */
 export class CloneRepository extends React.Component<
   ICloneRepositoryProps,
@@ -167,7 +194,7 @@ export class CloneRepository extends React.Component<
 
   private getAccountsForTab = memoizeOne(
     (tab: CloneRepositoryTab, accounts: ReadonlyArray<Account>) =>
-      tab === CloneRepositoryTab.Generic
+      tab === CloneRepositoryTab.Generic || tab === CloneRepositoryTab.AzureDevOps
         ? []
         : accounts.filter(
             tab === CloneRepositoryTab.DotCom
@@ -208,6 +235,13 @@ export class CloneRepository extends React.Component<
         kind: 'urlTabState',
         ...initialBaseTabState,
       },
+      azureTabState: {
+        kind: 'azureTabState',
+        filterText: '',
+        selectedItem: null,
+        organization: null,
+        ...initialBaseTabState,
+      },
     }
 
     this.initializePath()
@@ -246,11 +280,13 @@ export class CloneRepository extends React.Component<
       path: initialPath,
     }
     const urlTabState = { ...this.state.urlTabState, path: initialPath }
+    const azureTabState = { ...this.state.azureTabState, path: initialPath }
     this.setState({
       initialPath,
       dotComTabState,
       enterpriseTabState,
       urlTabState,
+      azureTabState,
     })
 
     // Update the local path based on the current url now that we have an
@@ -276,6 +312,7 @@ export class CloneRepository extends React.Component<
           <span id="dotcom-tab">GitHub.com</span>
           <span id="enterprise-tab">GitHub Enterprise</span>
           <span id="url-tab">URL</span>
+          <span id="azure-devops-tab">Azure DevOps</span>
         </TabBar>
 
         {error ? <DialogError>{error.message}</DialogError> : null}
@@ -290,11 +327,16 @@ export class CloneRepository extends React.Component<
   }
 
   private getSelectedTabId = () => {
-    return this.props.selectedTab === CloneRepositoryTab.DotCom
-      ? 'dotcom-tab'
-      : this.props.selectedTab === CloneRepositoryTab.Enterprise
-      ? 'enterprise-tab'
-      : 'url-tab'
+    switch (this.props.selectedTab) {
+      case CloneRepositoryTab.DotCom:
+        return 'dotcom-tab'
+      case CloneRepositoryTab.Enterprise:
+        return 'enterprise-tab'
+      case CloneRepositoryTab.AzureDevOps:
+        return 'azure-devops-tab'
+      default:
+        return 'url-tab'
+    }
   }
 
   private checkIfCloningDisabled = () => {
@@ -314,7 +356,14 @@ export class CloneRepository extends React.Component<
 
   private renderFooter() {
     const selectedTab = this.props.selectedTab
-    if (
+
+    // No account (or no organization) means the tab is showing a sign-in
+    // prompt, and a Clone button under a sign-in prompt has nothing to clone.
+    if (selectedTab === CloneRepositoryTab.AzureDevOps) {
+      if (this.getAzureOrganization() === null) {
+        return null
+      }
+    } else if (
       selectedTab !== CloneRepositoryTab.Generic &&
       !this.getAccountForTab(selectedTab)
     ) {
@@ -389,17 +438,104 @@ export class CloneRepository extends React.Component<
           )
         }
       }
+
+      case CloneRepositoryTab.AzureDevOps: {
+        const organization = this.getAzureOrganization()
+
+        if (organization === null) {
+          return <DialogContent>{this.renderSignIn(tab)}</DialogContent>
+        }
+
+        const tabState = this.state.azureTabState
+
+        return (
+          <CloneAzureDevOpsRepository
+            organizations={getAzureDevOpsOrganizations()}
+            organization={organization}
+            onOrganizationChanged={this.onAzureOrganizationChanged}
+            path={tabState.path ?? ''}
+            onPathChanged={this.onPathChanged}
+            onChooseDirectory={this.onChooseDirectory}
+            selectedItem={tabState.selectedItem}
+            onSelectionChanged={this.onAzureSelectionChanged}
+            filterText={tabState.filterText}
+            onFilterTextChanged={this.onFilterTextChanged}
+            onItemClicked={this.onAzureItemClicked}
+          />
+        )
+      }
       default:
         return assertNever(tab, `Unknown tab: ${tab}`)
     }
   }
 
+  /**
+   * The Azure DevOps organization the tab is browsing: the one the user picked
+   * if it's still connected, otherwise the first connected one, otherwise null.
+   */
+  private getAzureOrganization(): IAzureDevOpsOrganization | null {
+    const organizations = getAzureDevOpsOrganizations()
+    const chosen = this.state.azureTabState.organization
+
+    return (
+      (chosen === null
+        ? undefined
+        : organizations.find(o => o.name === chosen)) ??
+      organizations.at(0) ??
+      null
+    )
+  }
+
+  private onAzureOrganizationChanged = (
+    organization: IAzureDevOpsOrganization
+  ) => {
+    // Selection and filter belong to the organization they were made in.
+    this.setState(prevState => ({
+      azureTabState: {
+        ...prevState.azureTabState,
+        organization: organization.name,
+        selectedItem: null,
+        filterText: '',
+      },
+    }))
+    this.updateUrl('')
+  }
+
+  private onAzureSelectionChanged = (
+    selectedItem: IAzureDevOpsRepository | null
+  ) => {
+    this.setState(prevState => ({
+      azureTabState: { ...prevState.azureTabState, selectedItem },
+    }))
+    this.updateUrl(selectedItem === null ? '' : selectedItem.cloneUrl)
+  }
+
+  private onAzureItemClicked = (
+    repository: IAzureDevOpsRepository,
+    source: ClickSource
+  ) => {
+    if (source.kind === 'keyboard' && source.event.key === 'Enter') {
+      if (this.checkIfCloningDisabled() === false) {
+        this.clone()
+      }
+    }
+  }
+
+  private onAddAzureOrganization = () => {
+    this.props.dispatcher.showPopup({
+      type: PopupType.Preferences,
+      initialSelectedTab: PreferencesTab.Accounts,
+    })
+  }
+
   private onSelectedAccountChanged = (account: Account) => {
-    if (this.props.selectedTab !== CloneRepositoryTab.Generic) {
-      this.setGitHubTabState(
-        { selectedAccount: account },
-        this.props.selectedTab
-      )
+    const tab = this.props.selectedTab
+
+    if (
+      tab === CloneRepositoryTab.DotCom ||
+      tab === CloneRepositoryTab.Enterprise
+    ) {
+      this.setGitHubTabState({ selectedAccount: account }, tab)
     }
   }
 
@@ -435,6 +571,8 @@ export class CloneRepository extends React.Component<
       return this.state.enterpriseTabState
     } else if (tab === CloneRepositoryTab.Generic) {
       return this.state.urlTabState
+    } else if (tab === CloneRepositoryTab.AzureDevOps) {
+      return this.state.azureTabState
     } else {
       return assertNever(tab, `Unknown tab: ${tab}`)
     }
@@ -493,6 +631,13 @@ export class CloneRepository extends React.Component<
         }),
         callback
       )
+    } else if (tab === CloneRepositoryTab.AzureDevOps) {
+      this.setState(
+        prevState => ({
+          azureTabState: { ...prevState.azureTabState, ...state },
+        }),
+        callback
+      )
     } else {
       return assertNever(tab, `Unknown tab: ${tab}`)
     }
@@ -538,6 +683,20 @@ export class CloneRepository extends React.Component<
             </div>
           </CallToAction>
         )
+      case CloneRepositoryTab.AzureDevOps:
+        return (
+          <CallToAction
+            actionTitle={
+              __DARWIN__ ? 'Add Organization' : 'Add organization'
+            }
+            onAction={this.onAddAzureOrganization}
+          >
+            <div>
+              Connect an Azure DevOps organization with a personal access token
+              to browse and clone its repositories.
+            </div>
+          </CallToAction>
+        )
       case CloneRepositoryTab.Generic:
         return null
       default:
@@ -554,14 +713,28 @@ export class CloneRepository extends React.Component<
   }
 
   private onFilterTextChanged = (filterText: string) => {
-    if (this.props.selectedTab !== CloneRepositoryTab.Generic) {
-      this.setGitHubTabState({ filterText }, this.props.selectedTab)
+    const tab = this.props.selectedTab
+
+    if (
+      tab === CloneRepositoryTab.DotCom ||
+      tab === CloneRepositoryTab.Enterprise
+    ) {
+      this.setGitHubTabState({ filterText }, tab)
+    } else if (tab === CloneRepositoryTab.AzureDevOps) {
+      this.setState(prevState => ({
+        azureTabState: { ...prevState.azureTabState, filterText },
+      }))
     }
   }
 
   private onSelectionChanged = (selectedItem: IAPIRepository | null) => {
-    if (this.props.selectedTab !== CloneRepositoryTab.Generic) {
-      this.setGitHubTabState({ selectedItem }, this.props.selectedTab)
+    const tab = this.props.selectedTab
+
+    if (
+      tab === CloneRepositoryTab.DotCom ||
+      tab === CloneRepositoryTab.Enterprise
+    ) {
+      this.setGitHubTabState({ selectedItem }, tab)
       this.updateUrl(selectedItem === null ? '' : selectedItem.clone_url)
     }
   }
@@ -730,6 +903,16 @@ export class CloneRepository extends React.Component<
 
     if (url.endsWith('.wiki.git')) {
       return { url }
+    }
+
+    // Azure DevOps repositories come with their default branch already known
+    // from the listing, and there's no GitHub account to look them up against.
+    if (this.props.selectedTab === CloneRepositoryTab.AzureDevOps) {
+      const selected = this.state.azureTabState.selectedItem
+
+      return selected !== null && selected.cloneUrl === url
+        ? { url, defaultBranch: selected.defaultBranch ?? undefined }
+        : { url }
     }
 
     const account = await findAccountForRemoteURL(url, this.props.accounts)

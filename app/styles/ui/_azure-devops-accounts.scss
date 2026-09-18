@@ -1,0 +1,22 @@
+// The Azure DevOps section of Preferences > Accounts. Rows reuse the GitHub
+// account styling; this only covers what has no GitHub equivalent.
+.accounts-tab {
+  .account-info .azure-devops-icon {
+    width: 34px;
+    height: 34px;
+    align-self: center;
+    flex-shrink: 0;
+    color: var(--text-secondary-color);
+  }
+
+  .azure-devops-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing);
+    margin-top: var(--spacing);
+
+    .row-component {
+      gap: var(--spacing);
+    }
+  }
+}
