@@ -1,5 +1,9 @@
 {
   "releases": {
+    "3.5.14": [
+      "[Added] Azure DevOps support: connect an organization with a personal access token in Preferences > Accounts, then browse and clone its repositories from the new Azure DevOps tab of the clone dialog",
+      "[Added] Repositories under a connected Azure DevOps organization authenticate with the organization's token, including ones cloned before it was connected - no more credential prompts on fetch and push"
+    ],
     "3.5.13": [
       "[Added] Check for Updates in the app menu, and automatic updates from this fork's own GitHub releases - downloaded in the background and installed when you quit",
       "[Added] Commit message detail levels for your own AI provider - Concise (default), Detailed, or Thorough - in Preferences > AI",

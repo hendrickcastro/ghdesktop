@@ -3,7 +3,7 @@
   "productName": "GitHub Desktop KNWR",
   "bundleID": "com.knwr.GitHubDesktop",
   "companyName": "KNWR",
-  "version": "3.5.13",
+  "version": "3.5.14",
   "main": "./main.js",
   "repository": {
     "type": "git",
