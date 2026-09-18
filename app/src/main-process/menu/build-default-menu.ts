@@ -321,6 +321,14 @@ export function buildDefaultMenu({
         click: emit('pull'),
       },
       {
+        id: 'pull-repositories',
+        label: __DARWIN__
+          ? 'Pull Multiple Repositories…'
+          : 'Pull &multiple repositories…',
+        accelerator: 'CmdOrCtrl+Alt+Shift+P',
+        click: emit('pull-repositories'),
+      },
+      {
         id: 'fetch',
         label: __DARWIN__ ? 'Fetch' : '&Fetch',
         accelerator: 'CmdOrCtrl+Shift+T',

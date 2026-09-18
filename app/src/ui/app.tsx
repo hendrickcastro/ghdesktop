@@ -39,6 +39,7 @@ import { findItemByAccessKey, itemIsSelectable } from '../models/app-menu'
 import { Account, isDotComAccount } from '../models/account'
 import { TipState } from '../models/tip'
 import { CloneRepositoryTab } from '../models/clone-repository-tab'
+import { PullRepositories } from './pull-repositories/pull-repositories'
 import { CloningRepository } from '../models/cloning-repository'
 
 import { TitleBar, ZoomInfo, FullScreenInfo } from './window'
@@ -436,6 +437,10 @@ export class App extends React.Component<IAppProps, IAppState> {
         return this.push({ forceWithLease: true })
       case 'pull':
         return this.pull()
+      case 'pull-repositories':
+        return this.props.dispatcher.showPopup({
+          type: PopupType.PullRepositories,
+        })
       case 'fetch':
         return this.fetch()
       case 'show-changes':
@@ -1716,6 +1721,16 @@ export class App extends React.Component<IAppProps, IAppState> {
             onDismissed={onPopupDismissedFn}
             onOpenShell={this.onOpenShellIgnoreWarning}
             path={popup.path}
+          />
+        )
+      case PopupType.PullRepositories:
+        return (
+          <PullRepositories
+            key="pull-repositories"
+            dispatcher={this.props.dispatcher}
+            repositories={this.state.repositories}
+            repositoryFolders={this.state.repositoryFolders}
+            onDismissed={onPopupDismissedFn}
           />
         )
       case PopupType.About:

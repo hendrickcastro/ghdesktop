@@ -42,3 +42,4 @@ export type MenuIDs =
   | 'decrease-active-resizable-width'
   | 'increase-active-resizable-width'
   | 'toggle-changes-filter'
+  | 'pull-repositories'

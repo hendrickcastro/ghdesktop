@@ -59,6 +59,7 @@ import { Author, UnknownAuthor } from '../../models/author'
 import { Branch, IAheadBehind } from '../../models/branch'
 import { BranchesTab } from '../../models/branches-tab'
 import { CloneRepositoryTab } from '../../models/clone-repository-tab'
+import { BulkPullOutcome } from '../../models/bulk-pull'
 import { CloningRepository } from '../../models/cloning-repository'
 import { Commit, ICommitContext, CommitOneLine } from '../../models/commit'
 import { ICommitMessage } from '../../models/commit-message'
@@ -736,6 +737,16 @@ export class Dispatcher {
   /** Pull the current branch. */
   public pull(repository: Repository): Promise<void> {
     return this.appStore._pull(repository)
+  }
+
+  /**
+   * Pull one repository of a batch, getting the outcome back instead of having
+   * it raised through the error dialog.
+   */
+  public pullRepositoryQuietly(
+    repository: Repository
+  ): Promise<BulkPullOutcome> {
+    return this.appStore._pullRepositoryQuietly(repository)
   }
 
   /** Fetch a specific refspec for the repository. */

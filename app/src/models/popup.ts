@@ -109,6 +109,7 @@ export enum PopupType {
   GenerateCommitMessageDisclaimer = 'GenerateCommitMessageDisclaimer',
   HookFailed = 'HookFailed',
   CommitProgress = 'CommitProgress',
+  PullRepositories = 'PullRepositories',
 }
 
 interface IBasePopup {
@@ -169,6 +170,7 @@ export type PopupDetail =
       credentialHelperUrl?: string
     }
   | { type: PopupType.About }
+  | { type: PopupType.PullRepositories }
   | { type: PopupType.InstallGit; path: string }
   | { type: PopupType.PublishRepository; repository: Repository }
   | { type: PopupType.Acknowledgements }

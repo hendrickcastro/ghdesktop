@@ -1,0 +1,108 @@
+#pull-repositories {
+  width: 620px;
+  max-width: 90vw;
+
+  .pull-repositories-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing);
+    margin-bottom: var(--spacing);
+
+    .checkbox-component {
+      flex-shrink: 0;
+    }
+
+    .text-box-component {
+      flex: 1;
+      min-width: 0;
+    }
+  }
+
+  .pull-repositories-list {
+    max-height: 380px;
+    overflow-y: auto;
+    border: var(--base-border);
+    border-radius: var(--border-radius);
+  }
+
+  .pull-repositories-empty {
+    padding: var(--spacing-double);
+    text-align: center;
+    color: var(--text-secondary-color);
+  }
+
+  .pull-repositories-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing);
+    padding: var(--spacing-half) var(--spacing);
+    border-bottom: var(--base-border);
+
+    &:last-child {
+      border-bottom: none;
+    }
+
+    .checkbox-component {
+      flex: 1;
+      min-width: 0;
+
+      label {
+        min-width: 0;
+      }
+    }
+
+    .repo-label {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .repo-name {
+      font-weight: var(--font-weight-semibold);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .repo-detail {
+      color: var(--text-secondary-color);
+      font-size: var(--font-size-sm);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-half);
+      max-width: 45%;
+      flex-shrink: 0;
+      color: var(--text-secondary-color);
+      font-size: var(--font-size-sm);
+
+      .octicon {
+        flex-shrink: 0;
+      }
+
+      span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      &.updated {
+        color: var(--color-new);
+      }
+
+      &.failed {
+        color: var(--error-color);
+      }
+    }
+  }
+
+  .pull-repositories-summary {
+    margin: var(--spacing) 0 0;
+    color: var(--text-secondary-color);
+  }
+}

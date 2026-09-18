@@ -2,6 +2,7 @@ export type MenuEvent =
   | 'push'
   | 'force-push'
   | 'pull'
+  | 'pull-repositories'
   | 'fetch'
   | 'show-changes'
   | 'show-history'

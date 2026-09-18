@@ -18,6 +18,7 @@ import { Author } from '../../models/author'
 import { Branch, BranchType, IAheadBehind } from '../../models/branch'
 import { BranchesTab } from '../../models/branches-tab'
 import { CloneRepositoryTab } from '../../models/clone-repository-tab'
+import { BulkPullOutcome } from '../../models/bulk-pull'
 import { CloningRepository } from '../../models/cloning-repository'
 import {
   getPreferAbsoluteDates,
@@ -5169,6 +5170,99 @@ export class AppStore extends TypedBaseStore<IAppState> {
         }
       }
     })
+  }
+
+  /**
+   * Pulls one repository of a batch, reporting how it went instead of raising.
+   *
+   * The regular pull assumes the repository is the selected one: its branches
+   * and remotes are already loaded, and its errors go to the error dialog.
+   * Neither holds for a batch, so this loads what it needs first and hands back
+   * an outcome for the dialog to show next to the repository.
+   */
+  public async _pullRepositoryQuietly(
+    repository: Repository
+  ): Promise<BulkPullOutcome> {
+    if (repository.missing) {
+      return { kind: 'skipped', reason: "Can't find the repository on disk" }
+    }
+
+    if (this.repositoryStateCache.get(repository).isPushPullFetchInProgress) {
+      return {
+        kind: 'skipped',
+        reason: 'Another push, pull or fetch is already running',
+      }
+    }
+
+    // A repository that hasn't been selected this session has no branches or
+    // remotes loaded yet.
+    await this._refreshRepository(repository)
+
+    const gitStore = this.gitStoreCache.get(repository)
+    const remote = gitStore.currentRemote
+
+    if (!remote) {
+      return { kind: 'skipped', reason: 'No remote configured' }
+    }
+
+    const tip = this.repositoryStateCache.get(repository).branchesState.tip
+
+    switch (tip.kind) {
+      case TipState.Unknown:
+        return { kind: 'skipped', reason: "Couldn't read the current branch" }
+      case TipState.Unborn:
+        return { kind: 'skipped', reason: 'The current branch has no commits yet' }
+      case TipState.Detached:
+        return { kind: 'skipped', reason: 'Detached HEAD' }
+    }
+
+    if (tip.branch.upstream === null) {
+      return {
+        kind: 'skipped',
+        reason: `${tip.branch.name} has no upstream branch`,
+      }
+    }
+
+    const shaBefore = tip.branch.tip.sha
+    let outcome: BulkPullOutcome = { kind: 'up-to-date' }
+
+    await this.withPushPullFetch(repository, async () => {
+      this.updatePushPullFetchProgress(repository, {
+        kind: 'pull',
+        title: `Pulling ${remote.name}`,
+        value: 0,
+        remote: remote.name,
+      })
+
+      try {
+        await pullRepo(repository, remote, {
+          progressCallback: progress =>
+            this.updatePushPullFetchProgress(repository, {
+              ...progress,
+              value: progress.value * 0.9,
+            }),
+        })
+
+        await updateRemoteHEAD(repository, remote, false).catch(e =>
+          log.error('Failed updating remote HEAD', e)
+        )
+        await this.fastForwardBranches(repository)
+        await this._refreshRepository(repository)
+
+        const after = this.repositoryStateCache.get(repository).branchesState
+          .tip
+
+        if (after.kind === TipState.Valid && after.branch.tip.sha !== shaBefore) {
+          outcome = { kind: 'updated' }
+        }
+      } catch (e) {
+        outcome = { kind: 'failed', error: (e as Error).message.trim() }
+      } finally {
+        this.updatePushPullFetchProgress(repository, null)
+      }
+    })
+
+    return outcome
   }
 
   private async fastForwardBranches(repository: Repository) {
