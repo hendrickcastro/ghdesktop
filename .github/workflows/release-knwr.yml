@@ -186,10 +186,24 @@ jobs:
           # The symlink is what makes the disk image a drag-and-drop installer.
           ln -s /Applications "$STAGING/Applications"
 
-          hdiutil create -volname "GitHub Desktop KNWR" \
-            -srcfolder "$STAGING" \
-            -ov -format UDBZ \
-            "$DMG"
+          # hdiutil on the hosted macOS runners intermittently fails with
+          # "Resource busy" while the disk arbitration daemon is still holding
+          # the image. It clears within seconds, so retry before giving up on
+          # a release over it.
+          for attempt in 1 2 3 4 5; do
+            if hdiutil create -volname "GitHub Desktop KNWR" \
+                -srcfolder "$STAGING" \
+                -ov -format UDBZ \
+                "$DMG"; then
+              break
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "hdiutil kept failing after $attempt attempts" >&2
+              exit 1
+            fi
+            echo "hdiutil failed (attempt $attempt), retrying in 10s…"
+            sleep 10
+          done
 
           rm -rf "$STAGING"
 
