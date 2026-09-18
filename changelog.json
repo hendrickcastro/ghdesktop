@@ -1,5 +1,8 @@
 {
   "releases": {
+    "3.5.18": [
+      "[Added] Clone several GitHub.com or GitHub Enterprise repositories at once, the same way as Azure DevOps: tick them per repository, per owner or all shown, each goes into its own subfolder, and ones that already exist at the destination are flagged and skipped"
+    ],
     "3.5.17": [
       "[Added] Clone several Azure DevOps repositories at once: tick them (per repository, per team project, or all shown) and each is cloned into its own subfolder of the chosen folder",
       "[Added] Repositories that already exist at the destination are flagged as you tick them and left out of the clone, instead of failing afterwards"
