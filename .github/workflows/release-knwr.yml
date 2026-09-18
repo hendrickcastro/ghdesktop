@@ -87,6 +87,12 @@ jobs:
           Later versions install themselves: the app checks this repository's releases
           on launch and every four hours, downloads what it finds, and swaps itself out
           when you quit. **Check for Updates…** in the app menu does it on demand.
+
+          ### What this fork adds
+
+          Folders and favorites, pulling and cloning many repositories at once, Azure
+          DevOps, commit messages from your own AI provider, and self-updating — all
+          described in the [feature guide](https://github.com/__REPO__/blob/__TAG__/docs/knwr-features.md).
           NOTES
 
           sed -i "s|__VERSION__|$VERSION|g; s|__REPO__|$REPO|g; s|__TAG__|$TAG|g" notes.md
