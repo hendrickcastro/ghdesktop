@@ -16,6 +16,7 @@ import {
 } from './trampoline-environment'
 import { useExternalCredentialHelper } from './use-external-credential-helper'
 import {
+  findAzureDevOpsTrampolineAccount,
   findGenericTrampolineAccount,
   findGitHubTrampolineAccount,
 } from './find-account'
@@ -181,6 +182,17 @@ const getEndpointKind = async (cred: Credential, store: Store) => {
 /** Implementation of the 'store' git credential helper command */
 async function storeCredential(cred: Credential, store: Store, token: string) {
   if ((await getEndpointKind(cred, store)) !== 'generic') {
+    return
+  }
+
+  const endpoint = urlWithoutCredentials(getCredentialUrl(cred))
+
+  // A repository served from an Azure DevOps organization credential has
+  // nothing to store: the organization item already covers it, and saving a
+  // per-repository copy would recreate the one-keychain-item-per-repository
+  // pile that made every update prompt once per repository.
+  if (await findAzureDevOpsTrampolineAccount(token, endpoint)) {
+    debug(`not storing a per-repository credential for ${endpoint}`)
     return
   }
 

@@ -22,6 +22,12 @@ const memoizedGetGenericPassword = memoizeOne(
     getGenericPassword(endpoint, login)
 )
 
+/** Same idea, for the organization-level Azure DevOps credential. */
+const memoizedGetAzureDevOpsCredential = memoizeOne(
+  (_trampolineToken: string, organization: string) =>
+    getAzureDevOpsCredential(organization)
+)
+
 export async function findGitHubTrampolineAccount(
   accountsStore: AccountsStore,
   remoteUrl: string
@@ -40,50 +46,58 @@ export async function findGenericTrampolineAccount(
   const parsedUrl = new URL(remoteUrl)
   const endpoint = urlWithoutCredentials(remoteUrl)
 
-  const login =
-    parsedUrl.username === ''
-      ? getGenericUsername(endpoint)
-      : parsedUrl.username
-
-  if (login) {
-    const token = await memoizedGetGenericPassword(
-      trampolineToken,
-      endpoint,
-      login
-    )
-
-    if (token) {
-      return { login, endpoint, token }
-    }
-  }
-
-  // Nothing stored for this exact URL. If it's an Azure DevOps repository and
-  // the user connected its organization, use the organization's PAT: it covers
-  // every repository under it, including ones cloned before the organization
-  // was added or outside the app altogether.
-  const azure = await findAzureDevOpsTrampolineAccount(endpoint)
+  // Azure DevOps goes first, on purpose. An organization's PAT covers every
+  // repository under it and lives in a single credential store item. The
+  // per-repository items that git's `store` step used to save are each their
+  // own item, and macOS asks permission per item whenever the app's signature
+  // changes - which for an ad-hoc signed build is every update. Reading the one
+  // organization item instead turns dozens of prompts into one.
+  const azure = await findAzureDevOpsTrampolineAccount(
+    trampolineToken,
+    endpoint
+  )
 
   if (azure) {
     return azure
   }
 
-  if (login) {
-    // We have a username but no password, that warrants a warning
-    log.warn(`credential: generic password for ${remoteUrl} missing`)
+  const login =
+    parsedUrl.username === ''
+      ? getGenericUsername(endpoint)
+      : parsedUrl.username
+
+  if (!login) {
+    return undefined
   }
 
-  return undefined
+  const token = await memoizedGetGenericPassword(
+    trampolineToken,
+    endpoint,
+    login
+  )
+
+  if (!token) {
+    // We have a username but no password, that warrants a warning
+    log.warn(`credential: generic password for ${remoteUrl} missing`)
+    return undefined
+  }
+
+  return { login, endpoint, token }
 }
 
 /**
- * The organization-level Azure DevOps credential for a repository URL.
+ * The organization-level Azure DevOps credential for a repository URL, or
+ * undefined when the URL isn't Azure DevOps or its organization isn't connected.
  *
  * Git normally includes the path when asking for dev.azure.com credentials, so
  * the organization is the first path segment. When it doesn't - a bare
  * https://dev.azure.com - the only case we can answer is a user with a single
  * connected organization; with several there's no telling which one git wants.
  */
-async function findAzureDevOpsTrampolineAccount(endpoint: string) {
+export async function findAzureDevOpsTrampolineAccount(
+  trampolineToken: string,
+  endpoint: string
+) {
   const remote = parseAzureDevOpsRemote(endpoint)
   const bareHost = new URL(endpoint).hostname.toLowerCase() === 'dev.azure.com'
 
@@ -105,7 +119,10 @@ async function findAzureDevOpsTrampolineAccount(endpoint: string) {
     return undefined
   }
 
-  const credential = await getAzureDevOpsCredential(organization.name)
+  const credential = await memoizedGetAzureDevOpsCredential(
+    trampolineToken,
+    organization.name
+  )
 
   if (credential === null) {
     log.warn(
