@@ -2,7 +2,7 @@
 #
 # Builds this machine's installers for a ghknwr-<version> tag and uploads them
 # to that tag's GitHub release - the manual stand-in for the Release KNWR
-# workflow, which this fork doesn't run.
+# workflow, for when GitHub Actions can't run it.
 #
 #   script/release-knwr.sh ghknwr-3.6.0            # build + upload
 #   script/release-knwr.sh ghknwr-3.6.0 --publish  # ...then publish the release

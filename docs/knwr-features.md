@@ -248,37 +248,48 @@ secret, or an Apple Developer ID (which also removes the first-launch
 
 ## Releasing a new version
 
-Releases are built by hand - GitHub Actions is turned off for this repository
-- on two machines: a Mac for the Apple silicon build and a Windows PC for the
-x64 one. `script/release-knwr.sh` does each machine's half.
+Maintainers publish a release by pushing a tag:
 
-1. Bump `app/package.json` and add a `changelog.json` entry, commit, then tag
-   and push:
+```sh
+# bump app/package.json and add a changelog.json entry, then
+git tag ghknwr-3.7.0
+git push origin development ghknwr-3.7.0
+```
 
-   ```sh
-   git tag ghknwr-3.6.0
-   git push origin development ghknwr-3.6.0
-   ```
+The **Release KNWR** workflow (`.github/workflows/release-knwr.yml`) drafts
+the release, builds macOS (Apple silicon) and Windows (x64) in parallel on
+GitHub's standard runners - free for this public repository - uploads the four
+assets, and publishes. The version is written into `app/package.json` from the
+tag before building, so About and the updater always match the tag. For a tag
+that was pushed while Actions was off, or to rebuild, run it by hand:
 
-2. On each machine, check out the tag and run the script (Git Bash on
-   Windows), with Node from `.nvmrc` and `gh` signed in:
+```sh
+gh workflow run release-knwr.yml --ref development -f tag=ghknwr-3.7.0
+```
 
-   ```sh
-   git fetch --tags && git checkout ghknwr-3.6.0
-   script/release-knwr.sh ghknwr-3.6.0            # first machine
-   script/release-knwr.sh ghknwr-3.6.0 --publish  # second machine
-   ```
+### Without Actions
 
-   Set `DESKTOP_OAUTH_CLIENT_ID` and `DESKTOP_OAUTH_CLIENT_SECRET` to build
-   with your own GitHub OAuth app; without them the build uses the
-   development one, as every release so far has.
+`script/release-knwr.sh` does the same job on your own machines when the
+workflow can't run: a Mac for the Apple silicon build and a Windows PC (Git
+Bash) for the x64 one. On each, check out the tag, with Node from `.nvmrc`
+and `gh` signed in:
+
+```sh
+git fetch --tags && git checkout ghknwr-3.7.0
+script/release-knwr.sh ghknwr-3.7.0            # first machine
+script/release-knwr.sh ghknwr-3.7.0 --publish  # second machine
+```
 
 The first run creates the release as a draft, and each run uploads its own
 platform's two assets (replacing them on a rerun). `--publish` takes the
 release out of draft only once all four assets are there. The script refuses
 to build anything but a clean checkout of a pushed tag whose
-`app/package.json` version matches it, so About and the updater always agree
-with the tag.
+`app/package.json` version matches it.
+
+Set `DESKTOP_OAUTH_CLIENT_ID` and `DESKTOP_OAUTH_CLIENT_SECRET` (as
+repository secrets for the workflow, or in the environment for the script) to
+build with your own GitHub OAuth app; without them the build uses the
+development one, as every release so far has.
 
 Rules the updater relies on:
 
