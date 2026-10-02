@@ -198,7 +198,9 @@ export class RepositoriesList extends React.Component<
         isFavorite={
           repository instanceof Repository ? repository.isFavorite : false
         }
-        folderDepth={this.getFolderDepth(repository)}
+        folderDepth={
+          item.isInFavoritesGroup ? 0 : this.getFolderDepth(repository)
+        }
       />
     )
   }

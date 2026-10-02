@@ -79,6 +79,8 @@ export interface IRepositoryListItem extends IFilterListItem {
   readonly needsDisambiguation: boolean
   readonly aheadBehind: IAheadBehind | null
   readonly changedFilesCount: number
+  /** Whether this item is rendered inside the flat favorites group. */
+  readonly isInFavoritesGroup: boolean
 }
 
 const getHostForRepository = (repo: RepositoryWithGitHubRepository) =>
@@ -282,6 +284,7 @@ const toSortedListItems = (
               group.kind === 'folder')),
         aheadBehind: repoState?.aheadBehind ?? null,
         changedFilesCount: repoState?.changedFilesCount ?? 0,
+        isInFavoritesGroup: group.kind === 'favorites',
       }
     })
     .sort(({ repository: x }, { repository: y }) =>
