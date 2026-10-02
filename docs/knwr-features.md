@@ -265,13 +265,13 @@ x64 one. `script/release-knwr.sh` does each machine's half.
 
    ```sh
    git fetch --tags && git checkout ghknwr-3.6.0
-   export DESKTOP_OAUTH_CLIENT_ID=… DESKTOP_OAUTH_CLIENT_SECRET=…
    script/release-knwr.sh ghknwr-3.6.0            # first machine
    script/release-knwr.sh ghknwr-3.6.0 --publish  # second machine
    ```
 
-   The OAuth values are the GitHub OAuth app's; without them the build would
-   carry the development app and signing in to GitHub would fail.
+   Set `DESKTOP_OAUTH_CLIENT_ID` and `DESKTOP_OAUTH_CLIENT_SECRET` to build
+   with your own GitHub OAuth app; without them the build uses the
+   development one, as every release so far has.
 
 The first run creates the release as a draft, and each run uploads its own
 platform's two assets (replacing them on a rerun). `--publish` takes the

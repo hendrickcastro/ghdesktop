@@ -13,11 +13,11 @@
 # --publish on the second machine: it only takes the release out of draft once
 # all four assets are on it, because the updater picks assets by name.
 #
-# Needs: gh signed in with write access to the repository, the checkout at the
-# tag (already pushed), and the OAuth app credentials in the environment -
-# DESKTOP_OAUTH_CLIENT_ID and DESKTOP_OAUTH_CLIENT_SECRET, the same values as
-# the repository secrets. Without them the build would carry the development
-# OAuth app and signing in to GitHub would fail.
+# Needs: gh signed in with write access to the repository and the checkout at
+# the tag (already pushed). DESKTOP_OAUTH_CLIENT_ID and
+# DESKTOP_OAUTH_CLIENT_SECRET in the environment make the build use your own
+# GitHub OAuth app; without them it uses the development one, like every
+# release so far.
 
 set -euo pipefail
 
@@ -66,8 +66,11 @@ REQUIRED_NODE="$(tr -d 'v[:space:]' <.nvmrc)"
 [ "$(node -p 'process.versions.node')" = "$REQUIRED_NODE" ] ||
   die "Node $REQUIRED_NODE is required (.nvmrc), found $(node -v)"
 
-[ -n "${DESKTOP_OAUTH_CLIENT_ID:-}" ] && [ -n "${DESKTOP_OAUTH_CLIENT_SECRET:-}" ] ||
-  die "set DESKTOP_OAUTH_CLIENT_ID and DESKTOP_OAUTH_CLIENT_SECRET"
+if [ -z "${DESKTOP_OAUTH_CLIENT_ID:-}" ] || [ -z "${DESKTOP_OAUTH_CLIENT_SECRET:-}" ]; then
+  # Every release so far has shipped this way: the repository has no OAuth
+  # secrets, and the development OAuth app signs in fine.
+  echo "release-knwr: no DESKTOP_OAUTH_CLIENT_ID/SECRET; building with the development OAuth app, as previous releases did." >&2
+fi
 
 gh auth status >/dev/null 2>&1 || die "gh isn't signed in - run: gh auth login"
 

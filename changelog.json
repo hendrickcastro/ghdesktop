@@ -1,5 +1,12 @@
 {
   "releases": {
+    "3.7.0": [
+      "[Improved] Brought in GitHub Desktop 3.6.0 through 3.6.7-beta2: Git worktrees, Electron 44, date/time/number formatting preferences, and the upstream fixes since April",
+      "[Changed] Commit messages are generated only with the AI provider configured in Preferences > AI; Copilot is no longer offered, and no GitHub account is needed for it",
+      "[Added] The generate button stops an in-flight request",
+      "[Fixed] Favorites and folders survive switching worktrees",
+      "[Fixed] Cloning several repositories at once rejects names that would escape the chosen folder"
+    ],
     "3.6.7-beta2": [
       "[Added] Keep the current worktree toolbar segment visible with the \"Always show worktree list\" Appearance setting - #22888",
       "[Fixed] Fix a crash that could occur when Git LFS progress tracking encountered a file read error - #22889",
