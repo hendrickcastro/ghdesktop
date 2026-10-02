@@ -184,7 +184,6 @@ import { assertNever, fatalError, forceUnwrap } from '../fatal-error'
 
 import { formatCommitMessage } from '../format-commit-message'
 import {
-  getAccountForCommitMessageGeneration,
   getAccountForCopilotConflictResolution,
   getAccountForRepository,
 } from '../get-account-for-repository'
@@ -6510,35 +6509,13 @@ export class AppStore extends TypedBaseStore<IAppState> {
     repository: Repository,
     filesSelected: ReadonlyArray<WorkingDirectoryFileChange>
   ): Promise<boolean> {
-    const account = getAccountForCommitMessageGeneration(
-      this.accounts,
-      repository
-    )
-
-    if (!account) {
+    // This fork generates commit messages only with the provider configured in
+    // Preferences > AI; Copilot and GitHub's own endpoint are never called.
+    if (!isCustomAIEnabled()) {
       return false
     }
 
     this._setCommitMessageGenerationButtonClicked()
-
-    // The disclaimer is specific to Copilot; a user who wired up their own
-    // provider has already agreed to that provider's terms, so showing it would
-    // be both confusing and wrong.
-    const useCustomAI = isCustomAIEnabled()
-
-    if (
-      !useCustomAI &&
-      (!this.commitMessageGenerationDisclaimerLastSeen ||
-        offsetFromNow(-30, 'days') >
-          this.commitMessageGenerationDisclaimerLastSeen)
-    ) {
-      await this._showPopup({
-        type: PopupType.GenerateCommitMessageDisclaimer,
-        repository,
-        filesSelected,
-      })
-      return false
-    }
 
     return this.withIsGeneratingCommitMessage(repository, async signal => {
       try {
@@ -6556,25 +6533,10 @@ export class AppStore extends TypedBaseStore<IAppState> {
           return false
         }
 
-        const response = useCustomAI
-          ? await generateCommitMessageWithCustomAI(getAIProviderConfig(), diff)
-          : enableCopilotSdkCommitMessageGeneration(account)
-          ? await this.copilotStore.generateCommitMessage(
-              account,
-              diff,
-              repository.path,
-              await this.resolveCopilotModelRequest(
-                this.getSelectedCopilotModels(account)[
-                  'commit-message-generation'
-                ] ?? null
-              ),
-              this.repositoryStateCache
-                .get(repository)
-                ?.changesState.currentRepoRulesInfo?.commitMessagePatterns.getRules() ??
-                [],
-              signal
-            )
-          : await API.fromAccount(account).getDiffChangesCommitMessage(diff)
+        const response = await generateCommitMessageWithCustomAI(
+          getAIProviderConfig(),
+          diff
+        )
 
         // Our own providers don't take the abort signal, so a request the user
         // stopped still completes; drop its answer rather than apply it.

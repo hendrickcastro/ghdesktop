@@ -138,7 +138,6 @@ import { LocalChangesOverwrittenDialog } from './local-changes-overwritten/local
 import memoizeOne from 'memoize-one'
 import { AheadBehindStore } from '../lib/stores/ahead-behind-store'
 import {
-  getAccountForCommitMessageGeneration,
   getAccountForCopilotConflictResolution,
   getAccountForRepository,
 } from '../lib/get-account-for-repository'
@@ -2909,21 +2908,15 @@ export class App extends React.Component<IAppProps, IAppState> {
           />
         )
       case PopupType.GenerateCommitMessageOverrideWarning: {
-        const account = getAccountForCommitMessageGeneration(
-          this.state.accounts,
-          popup.repository
-        )
-
         return (
           <GenerateCommitMessageOverrideWarning
             key="generate-commit-message-override-warning"
             dispatcher={this.props.dispatcher}
             repository={popup.repository}
             filesSelected={popup.filesSelected}
-            showCopilotInstructionsTip={
-              account !== undefined &&
-              enableCopilotSdkCommitMessageGeneration(account)
-            }
+            // The tip is about Copilot's instructions file, and this fork
+            // generates commit messages with the user's own provider.
+            showCopilotInstructionsTip={false}
             onDismissed={onPopupDismissedFn}
           />
         )

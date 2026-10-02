@@ -89,22 +89,13 @@ export const enableCustomIntegration = () => true
 
 export const enableResizingToolbarButtons = () => true
 
-export const enableCommitMessageGeneration = (account: Account) => {
-  // A user-configured AI provider stands in for Copilot here, so the Copilot
-  // entitlement below doesn't gate the feature - the user brings their own key.
-  if (isCustomAIEnabled()) {
-    return true
-  }
-
-  return (
-    (account.features ?? []).includes(
-      'desktop_copilot_generate_commit_message'
-    ) &&
-    // IMPORTANT: Do not remove this feature flag without replacing its usages
-    // with a check for the `isCopilotDesktopEnabled` property on the account.
-    account.isCopilotDesktopEnabled
-  )
-}
+/**
+ * Commit messages are generated only with the provider configured in
+ * Preferences > AI. This fork leaves Copilot out entirely, so no GitHub account
+ * or Copilot entitlement is involved.
+ */
+export const enableCommitMessageGeneration = (account: Account) =>
+  isCustomAIEnabled()
 
 export const enableCopilotSdkCommitMessageGeneration = (account: Account) => {
   // Enabled for all users in beta and development channels, and for users with

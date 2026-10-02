@@ -1291,8 +1291,12 @@ export class Preferences extends React.Component<
     this.setState({ selectedIndex: this.visualIndexToTab(visualIndex) })
   }
 
+  /**
+   * Gates the Copilot tab. This fork leaves Copilot out - AI features go
+   * through the provider in the AI tab - so the tab never shows.
+   */
   private get isCopilotSdkEnabled(): boolean {
-    return this.props.accounts.some(enableCopilotSdkCommitMessageGeneration)
+    return false
   }
 
   private tabToVisualIndex(tab: PreferencesTab): number {

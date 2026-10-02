@@ -1,11 +1,7 @@
 import { Repository } from '../models/repository'
 import { Account } from '../models/account'
 import { getAccountForEndpoint } from './api'
-import {
-  enableCommitMessageGeneration,
-  enableCopilotConflictResolution,
-  enableCopilotSdkCommitMessageGeneration,
-} from './feature-flag'
+import { enableCommitMessageGeneration } from './feature-flag'
 
 /** Get the authenticated account for the repository. */
 export function getAccountForRepository(
@@ -53,10 +49,12 @@ export function getAccountForCommitMessageGeneration(
  * controls whether we're allowed to use the Copilot SDK at all (beta/dev
  * builds). This keeps conflict resolution from running when the SDK is off.
  */
+//
+// This fork leaves Copilot out. Every way into Copilot conflict resolution -
+// the conflicts dialog button, auto-routing, the resolve call itself - asks
+// this first, so no account is ever eligible.
 const isAccountEligibleForCopilotConflictResolution = (account: Account) =>
-  enableCopilotConflictResolution() &&
-  enableCopilotSdkCommitMessageGeneration(account) &&
-  account.isCopilotDesktopEnabled === true
+  false
 
 /**
  * Get the authenticated account to use for Copilot-powered merge conflict

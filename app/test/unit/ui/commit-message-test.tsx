@@ -14,6 +14,10 @@ import {
   WorkingDirectoryFileChange,
 } from '../../../src/models/status'
 import { CommitMessage } from '../../../src/ui/changes/commit-message'
+import {
+  getAIProviderConfig,
+  setAIProviderConfig,
+} from '../../../src/lib/ai/ai-config'
 
 const PreviewFeaturesEnv = 'GITHUB_DESKTOP_PREVIEW_FEATURES'
 const previousPreviewFeatures = process.env[PreviewFeaturesEnv]
@@ -132,6 +136,17 @@ function createProps(
   }
 }
 
+/** Runs fn with the custom AI provider switched on or off, then restores it. */
+async function withAIProvider<T>(enabled: boolean, fn: () => T) {
+  const previous = getAIProviderConfig()
+  setAIProviderConfig({ ...previous, enabled })
+  try {
+    return await fn()
+  } finally {
+    setAIProviderConfig(previous)
+  }
+}
+
 function toTestInstance(component: CommitMessage): CommitMessageTestInstance {
   return component as unknown as CommitMessageTestInstance
 }
@@ -177,51 +192,37 @@ afterEach(() => {
 })
 
 describe('CommitMessage', () => {
-  it('does not allow cancelling commit message generation when the Copilot SDK is disabled', async () => {
-    delete process.env[PreviewFeaturesEnv]
+  // This fork generates commit messages only with the provider configured in
+  // Preferences > AI, never with Copilot.
+  it('does not offer commit message generation without a configured AI provider', async () => {
+    await withAIProvider(false, () => {
+      const component = toTestInstance(new CommitMessage(createProps()))
 
-    let cancelCount = 0
-    const component = toTestInstance(
-      new CommitMessage(
-        createProps({
-          onCancelGenerateCommitMessage: () => {
-            cancelCount++
-          },
-        })
-      )
-    )
-
-    const buttonProps = getCopilotButtonProps(component)
-
-    assert.equal(buttonProps.ariaLabel, 'Generating commit details…')
-    assert.equal(buttonProps.disabled, true)
-
-    await clickCopilotButton(component)
-
-    assert.equal(cancelCount, 0)
+      assert.equal(component.renderCopilotButton(), null)
+    })
   })
 
-  it('allows cancelling commit message generation when the Copilot SDK is enabled', async () => {
-    process.env[PreviewFeaturesEnv] = '1'
-
-    let cancelCount = 0
-    const component = toTestInstance(
-      new CommitMessage(
-        createProps({
-          onCancelGenerateCommitMessage: () => {
-            cancelCount++
-          },
-        })
+  it('allows cancelling commit message generation with the configured AI provider', async () => {
+    await withAIProvider(true, async () => {
+      let cancelCount = 0
+      const component = toTestInstance(
+        new CommitMessage(
+          createProps({
+            onCancelGenerateCommitMessage: () => {
+              cancelCount++
+            },
+          })
+        )
       )
-    )
 
-    const buttonProps = getCopilotButtonProps(component)
+      const buttonProps = getCopilotButtonProps(component)
 
-    assert.equal(buttonProps.ariaLabel, 'Cancel generating commit details')
-    assert.equal(buttonProps.disabled, false)
+      assert.equal(buttonProps.ariaLabel, 'Cancel generating commit details')
+      assert.equal(buttonProps.disabled, false)
 
-    await clickCopilotButton(component)
+      await clickCopilotButton(component)
 
-    assert.equal(cancelCount, 1)
+      assert.equal(cancelCount, 1)
+    })
   })
 })

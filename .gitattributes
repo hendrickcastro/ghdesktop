@@ -2,3 +2,4 @@
 /app/static/win32/github.sh eol=lf
 
 .github/workflows/*.lock.yml linguist-generated=true
+/script/release-knwr.sh eol=lf

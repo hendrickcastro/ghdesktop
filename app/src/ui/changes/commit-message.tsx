@@ -64,12 +64,7 @@ import { formatCommitMessage } from '../../lib/format-commit-message'
 import { useRepoRulesLogic } from '../../lib/helpers/repo-rules'
 import { isDotCom } from '../../lib/endpoint-capabilities'
 import { WorkingDirectoryFileChange } from '../../models/status'
-import {
-  enableCommitMessageGeneration,
-  enableCopilotSdkCommitMessageGeneration,
-  enableHooksEnvironment,
-} from '../../lib/feature-flag'
-import { getAccountForCommitMessageGeneration } from '../../lib/get-account-for-repository'
+import { enableHooksEnvironment } from '../../lib/feature-flag'
 import { AriaLiveContainer } from '../accessibility/aria-live-container'
 import { HookProgress } from '../../lib/git'
 import { assertNever } from '../../lib/fatal-error'
@@ -882,23 +877,19 @@ export class CommitMessage extends React.Component<
    * where the user's diff is being sent.
    */
   private get commitMessageGeneratorName(): string {
-    return isCustomAIEnabled()
-      ? getAIProviderName(getAIProviderConfig().provider)
-      : 'Copilot'
+    return getAIProviderName(getAIProviderConfig().provider)
   }
 
   /**
-   * Copilot's mark stands for Copilot; a generic sparkle stands for whatever
-   * provider the user wired up. Showing Copilot's logo for a request going to
-   * OpenAI would misattribute it.
+   * A generic sparkle for whatever provider the user wired up; Copilot's mark
+   * would misattribute where the diff is sent.
    */
   private get commitMessageGeneratorIcon() {
-    return isCustomAIEnabled() ? octicons.sparkleFill : octicons.copilot
+    return octicons.sparkleFill
   }
 
   private getGenerateCommitMessageMenuItem(): IMenuItem | null {
     const {
-      accounts,
       onGenerateCommitMessage,
       filesSelected,
       isCommitting,
@@ -906,10 +897,7 @@ export class CommitMessage extends React.Component<
       commitToAmend,
     } = this.props
 
-    if (
-      !accounts.some(enableCommitMessageGeneration) ||
-      onGenerateCommitMessage === undefined
-    ) {
+    if (!isCustomAIEnabled() || onGenerateCommitMessage === undefined) {
       return null
     }
 
@@ -1232,13 +1220,12 @@ export class CommitMessage extends React.Component<
   }
 
   /**
-   * Whether the Copilot button should be available
+   * Whether the generate commit message button should be available: only with
+   * the provider configured in Preferences > AI.
    */
   private get isCopilotButtonEnabled() {
-    const { accounts, onGenerateCommitMessage } = this.props
     return (
-      accounts.some(enableCommitMessageGeneration) &&
-      onGenerateCommitMessage !== undefined
+      isCustomAIEnabled() && this.props.onGenerateCommitMessage !== undefined
     )
   }
 
@@ -1246,14 +1233,8 @@ export class CommitMessage extends React.Component<
    * Whether an in-flight commit message generation can be cancelled.
    */
   private get canCancelGenerateCommitMessage() {
-    const account = getAccountForCommitMessageGeneration(
-      this.props.accounts,
-      this.props.repository
-    )
-
     return (
-      account !== undefined &&
-      enableCopilotSdkCommitMessageGeneration(account) &&
+      isCustomAIEnabled() &&
       this.props.onCancelGenerateCommitMessage !== undefined
     )
   }
