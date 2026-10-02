@@ -131,7 +131,10 @@ handled the same as the one you're looking at.
 
 ## Commit messages from your own AI provider
 
-Generate commit messages with your own API key instead of GitHub Copilot.
+Generate commit messages with your own API key. This fork leaves GitHub
+Copilot out: commit messages only ever go to the provider you configure here,
+and upstream's Copilot features - the Copilot preferences tab, *Resolve with
+Copilot* in the conflicts dialog - are hidden.
 
 ### Setting it up
 
@@ -166,8 +169,10 @@ budget now says so instead of returning nothing.
 ### Using it
 
 With your provider enabled, the sparkle button next to the commit summary
-generates the message from the selected changes. The Copilot disclaimer is not
-shown — you've already agreed to your own provider's terms.
+generates the message from the selected changes; while it runs the same button
+stops it. Without a provider enabled the button isn't shown. No GitHub account
+is needed, and the Copilot disclaimer is not shown — you've already agreed to
+your own provider's terms.
 
 ## Azure DevOps
 
@@ -243,20 +248,37 @@ secret, or an Apple Developer ID (which also removes the first-launch
 
 ## Releasing a new version
 
-Maintainers publish a release by pushing a tag:
+Releases are built by hand - GitHub Actions is turned off for this repository
+- on two machines: a Mac for the Apple silicon build and a Windows PC for the
+x64 one. `script/release-knwr.sh` does each machine's half.
 
-```sh
-# bump app/package.json and add a changelog.json entry, then
-git tag ghknwr-3.5.18
-git push origin ghknwr-3.5.18
-```
+1. Bump `app/package.json` and add a `changelog.json` entry, commit, then tag
+   and push:
 
-The **Release KNWR** workflow (`.github/workflows/release-knwr.yml`) drafts
-the release, builds macOS (Apple silicon) and Windows (x64) in parallel,
-uploads the four assets, and publishes. The version is written into
-`app/package.json` from the tag before building, so About and the updater
-always match the tag. It can also be run by hand from the Actions tab for an
-existing tag.
+   ```sh
+   git tag ghknwr-3.6.0
+   git push origin development ghknwr-3.6.0
+   ```
+
+2. On each machine, check out the tag and run the script (Git Bash on
+   Windows), with Node from `.nvmrc` and `gh` signed in:
+
+   ```sh
+   git fetch --tags && git checkout ghknwr-3.6.0
+   export DESKTOP_OAUTH_CLIENT_ID=… DESKTOP_OAUTH_CLIENT_SECRET=…
+   script/release-knwr.sh ghknwr-3.6.0            # first machine
+   script/release-knwr.sh ghknwr-3.6.0 --publish  # second machine
+   ```
+
+   The OAuth values are the GitHub OAuth app's; without them the build would
+   carry the development app and signing in to GitHub would fail.
+
+The first run creates the release as a draft, and each run uploads its own
+platform's two assets (replacing them on a rerun). `--publish` takes the
+release out of draft only once all four assets are there. The script refuses
+to build anything but a clean checkout of a pushed tag whose
+`app/package.json` version matches it, so About and the updater always agree
+with the tag.
 
 Rules the updater relies on:
 
@@ -278,7 +300,7 @@ when set).
 ## Known limitations
 
 - **macOS builds are Apple silicon only.** Intel Macs would need an x64 build
-  (`TARGET_ARCH=x64 yarn build:prod`), which the release workflow doesn't
+  (`TARGET_ARCH=x64 yarn build:prod`), which the release script doesn't
   produce.
 - **Not notarized / not code-signed.** First launch on macOS needs the
   quarantine flag cleared (the installer script does it); Windows shows a
