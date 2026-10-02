@@ -111,8 +111,9 @@ export class PullRepositories extends React.Component<
       })
       .sort(
         (a, b) =>
-          a.detail.localeCompare(b.detail, undefined, { sensitivity: 'base' }) ||
-          a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+          a.detail.localeCompare(b.detail, undefined, {
+            sensitivity: 'base',
+          }) || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
       )
   }
 
@@ -276,7 +277,9 @@ export class PullRepositories extends React.Component<
       <Dialog
         id="pull-repositories"
         title={
-          __DARWIN__ ? 'Pull Multiple Repositories' : 'Pull multiple repositories'
+          __DARWIN__
+            ? 'Pull Multiple Repositories'
+            : 'Pull multiple repositories'
         }
         onSubmit={this.onPull}
         onDismissed={this.props.onDismissed}
@@ -336,7 +339,11 @@ export class PullRepositories extends React.Component<
     const status = this.state.statuses.get(repository.id)
 
     return (
-      <div className="pull-repositories-row" role="listitem" key={repository.id}>
+      <div
+        className="pull-repositories-row"
+        role="listitem"
+        key={repository.id}
+      >
         <Checkbox
           value={checked ? CheckboxValue.On : CheckboxValue.Off}
           onChange={this.onToggleRow(repository.id)}

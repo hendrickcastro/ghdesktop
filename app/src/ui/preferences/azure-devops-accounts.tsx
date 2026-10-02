@@ -103,7 +103,8 @@ export class AzureDevOpsAccounts extends React.Component<
       this.setState({
         formState: {
           kind: 'error',
-          message: 'Both the username and the personal access token are needed.',
+          message:
+            'Both the username and the personal access token are needed.',
         },
       })
       return

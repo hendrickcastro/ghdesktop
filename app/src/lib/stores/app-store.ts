@@ -5211,7 +5211,10 @@ export class AppStore extends TypedBaseStore<IAppState> {
       case TipState.Unknown:
         return { kind: 'skipped', reason: "Couldn't read the current branch" }
       case TipState.Unborn:
-        return { kind: 'skipped', reason: 'The current branch has no commits yet' }
+        return {
+          kind: 'skipped',
+          reason: 'The current branch has no commits yet',
+        }
       case TipState.Detached:
         return { kind: 'skipped', reason: 'Detached HEAD' }
     }
@@ -5249,10 +5252,13 @@ export class AppStore extends TypedBaseStore<IAppState> {
         await this.fastForwardBranches(repository)
         await this._refreshRepository(repository)
 
-        const after = this.repositoryStateCache.get(repository).branchesState
-          .tip
+        const after =
+          this.repositoryStateCache.get(repository).branchesState.tip
 
-        if (after.kind === TipState.Valid && after.branch.tip.sha !== shaBefore) {
+        if (
+          after.kind === TipState.Valid &&
+          after.branch.tip.sha !== shaBefore
+        ) {
           outcome = { kind: 'updated' }
         }
       } catch (e) {

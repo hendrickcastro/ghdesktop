@@ -94,8 +94,12 @@ const buildFavoriteMenuItem = (
   }
 
   const label = repository.isFavorite
-    ? (__DARWIN__ ? 'Remove from Favorites' : 'Remove from favorites')
-    : (__DARWIN__ ? 'Add to Favorites' : 'Add to favorites')
+    ? __DARWIN__
+      ? 'Remove from Favorites'
+      : 'Remove from favorites'
+    : __DARWIN__
+    ? 'Add to Favorites'
+    : 'Add to favorites'
 
   return [
     {

@@ -39,9 +39,7 @@ export class FolderDialog extends React.Component<
     return (
       <Dialog
         id="folder-dialog"
-        title={
-          __DARWIN__ ? `${verb} ${noun}` : `${verb} ${noun.toLowerCase()}`
-        }
+        title={__DARWIN__ ? `${verb} ${noun}` : `${verb} ${noun.toLowerCase()}`}
         ariaDescribedBy="folder-dialog-description"
         onDismissed={this.props.onDismissed}
         onSubmit={this.onSubmit}
@@ -65,9 +63,7 @@ export class FolderDialog extends React.Component<
         <DialogFooter>
           <OkCancelButtonGroup
             okButtonText={
-              __DARWIN__
-                ? `${verb} ${noun}`
-                : `${verb} ${noun.toLowerCase()}`
+              __DARWIN__ ? `${verb} ${noun}` : `${verb} ${noun.toLowerCase()}`
             }
             okButtonDisabled={this.state.folderName.trim().length === 0}
           />

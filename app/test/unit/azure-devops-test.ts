@@ -76,23 +76,32 @@ describe('Azure DevOps', () => {
 
   describe('normalizeAzureDevOpsOrganization', () => {
     it('accepts a bare name', () => {
-      assert.equal(normalizeAzureDevOpsOrganization('  rockthesportup '), 'rockthesportup')
+      assert.equal(
+        normalizeAzureDevOpsOrganization('  rockthesportup '),
+        'rockthesportup'
+      )
     })
 
     it('takes the name out of a dev.azure.com URL', () => {
       assert.equal(
-        normalizeAzureDevOpsOrganization('https://dev.azure.com/rockthesportup/'),
+        normalizeAzureDevOpsOrganization(
+          'https://dev.azure.com/rockthesportup/'
+        ),
         'rockthesportup'
       )
       assert.equal(
-        normalizeAzureDevOpsOrganization('dev.azure.com/rockthesportup/Proj/_git/Repo'),
+        normalizeAzureDevOpsOrganization(
+          'dev.azure.com/rockthesportup/Proj/_git/Repo'
+        ),
         'rockthesportup'
       )
     })
 
     it('takes the name out of a legacy visualstudio.com host', () => {
       assert.equal(
-        normalizeAzureDevOpsOrganization('https://rockthesportup.visualstudio.com'),
+        normalizeAzureDevOpsOrganization(
+          'https://rockthesportup.visualstudio.com'
+        ),
         'rockthesportup'
       )
     })

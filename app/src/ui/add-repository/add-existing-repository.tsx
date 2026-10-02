@@ -289,8 +289,8 @@ export class AddExistingRepository extends React.Component<
               this.isMultiSelect
                 ? `Add ${selectedPaths.length} repositories`
                 : __DARWIN__
-                  ? 'Add Repository'
-                  : 'Add repository'
+                ? 'Add Repository'
+                : 'Add repository'
             }
           />
         </DialogFooter>

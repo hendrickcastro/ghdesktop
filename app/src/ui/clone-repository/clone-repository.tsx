@@ -210,7 +210,8 @@ export class CloneRepository extends React.Component<
 
   private getAccountsForTab = memoizeOne(
     (tab: CloneRepositoryTab, accounts: ReadonlyArray<Account>) =>
-      tab === CloneRepositoryTab.Generic || tab === CloneRepositoryTab.AzureDevOps
+      tab === CloneRepositoryTab.Generic ||
+      tab === CloneRepositoryTab.AzureDevOps
         ? []
         : accounts.filter(
             tab === CloneRepositoryTab.DotCom
@@ -691,9 +692,7 @@ export class CloneRepository extends React.Component<
       return
     }
 
-    const candidates = [...checked.values()].filter(
-      c => !conflicts.has(c.url)
-    )
+    const candidates = [...checked.values()].filter(c => !conflicts.has(c.url))
 
     if (candidates.length === 0) {
       return
@@ -716,9 +715,7 @@ export class CloneRepository extends React.Component<
       }
     }
 
-    await Promise.all(
-      Array.from({ length: Math.min(3, queue.length) }, worker)
-    )
+    await Promise.all(Array.from({ length: Math.min(3, queue.length) }, worker))
   }
 
   private onAzureItemClicked = (
@@ -906,9 +903,7 @@ export class CloneRepository extends React.Component<
       case CloneRepositoryTab.AzureDevOps:
         return (
           <CallToAction
-            actionTitle={
-              __DARWIN__ ? 'Add Organization' : 'Add organization'
-            }
+            actionTitle={__DARWIN__ ? 'Add Organization' : 'Add organization'}
             onAction={this.onAddAzureOrganization}
           >
             <div>

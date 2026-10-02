@@ -292,7 +292,9 @@ export class CloneableRepositoryFilterList extends React.PureComponent<ICloneabl
     return (
       <SectionFilterList<ICloneableRepositoryListItem>
         className={
-          this.multiSelect ? 'clone-github-repo multi-select' : 'clone-github-repo'
+          this.multiSelect
+            ? 'clone-github-repo multi-select'
+            : 'clone-github-repo'
         }
         rowHeight={RowHeight}
         selectedItem={selectedListItem}

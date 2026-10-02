@@ -65,7 +65,11 @@ export class RepositoryListItem extends React.Component<
       depth > 0 ? { paddingLeft: `${depth * 16 + 8}px` } : undefined
 
     return (
-      <div className="repository-list-item" ref={this.listItemRef} style={depthStyle}>
+      <div
+        className="repository-list-item"
+        ref={this.listItemRef}
+        style={depthStyle}
+      >
         <Tooltip
           target={this.listItemRef}
           disabled={enableAccessibleListToolTips()}

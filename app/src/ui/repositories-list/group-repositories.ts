@@ -280,8 +280,7 @@ const toSortedListItems = (
         needsDisambiguation:
           ((groupNames.get(title) ?? 0) > 1 && group.kind === 'enterprise') ||
           ((allNames.get(title) ?? 0) > 1 &&
-            (group.kind === 'favorites' ||
-              group.kind === 'folder')),
+            (group.kind === 'favorites' || group.kind === 'folder')),
         aheadBehind: repoState?.aheadBehind ?? null,
         changedFilesCount: repoState?.changedFilesCount ?? 0,
         isInFavoritesGroup: group.kind === 'favorites',

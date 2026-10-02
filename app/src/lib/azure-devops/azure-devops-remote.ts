@@ -17,9 +17,7 @@ export interface IAzureDevOpsRemote {
  * so accept `https://dev.azure.com/org`, `org.visualstudio.com`, and a bare
  * `org`, with or without trailing paths.
  */
-export function normalizeAzureDevOpsOrganization(
-  input: string
-): string | null {
+export function normalizeAzureDevOpsOrganization(input: string): string | null {
   const trimmed = input.trim()
 
   if (trimmed === '') {

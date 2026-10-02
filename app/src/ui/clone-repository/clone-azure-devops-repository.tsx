@@ -36,7 +36,9 @@ interface ICloneAzureDevOpsRepositoryProps {
   /** The organization whose repositories are listed. */
   readonly organization: IAzureDevOpsOrganization
 
-  readonly onOrganizationChanged: (organization: IAzureDevOpsOrganization) => void
+  readonly onOrganizationChanged: (
+    organization: IAzureDevOpsOrganization
+  ) => void
 
   /**
    * The path to clone to: one repository's folder normally, the parent folder
@@ -513,8 +515,8 @@ export class CloneAzureDevOpsRepository extends React.Component<
         <div>
           Looks like <Ref>{organization.username}</Ref> can't see any
           repositories in <Ref>{organization.name}</Ref>.{' '}
-          <LinkButton onClick={this.onRefresh}>Refresh this list</LinkButton>{' '}
-          if you've created one recently, or check the PAT's scopes.
+          <LinkButton onClick={this.onRefresh}>Refresh this list</LinkButton> if
+          you've created one recently, or check the PAT's scopes.
         </div>
       </div>
     )
