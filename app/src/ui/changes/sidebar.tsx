@@ -97,12 +97,6 @@ interface IChangesSidebarProps {
   readonly showChangesFilter: boolean
 
   /**
-   * Whether there are any hooks in the repository that could be
-   * skipped during commit with the --no-verify flag
-   */
-  readonly hasCommitHooks: boolean
-
-  /**
    * Whether or not to skip blocking commit hooks when creating commits
    * by means of passing the `--no-verify` flag to git commit
    */
@@ -272,12 +266,25 @@ export class ChangesSidebar extends React.Component<IChangesSidebarProps, {}> {
     })
   }
 
-  private onIgnoreFile = (file: string | string[]) => {
-    this.props.dispatcher.appendIgnoreFile(this.props.repository, file)
+  private onIgnoreFile = async (file: string | string[]) => {
+    try {
+      await this.props.dispatcher.appendIgnoreFile(this.props.repository, file)
+    } catch (error) {
+      log.error('Failed to ignore file(s)', error)
+      await this.props.dispatcher.postError(error)
+    }
   }
 
-  private onIgnorePattern = (pattern: string | string[]) => {
-    this.props.dispatcher.appendIgnoreRule(this.props.repository, pattern)
+  private onIgnorePattern = async (pattern: string | string[]) => {
+    try {
+      await this.props.dispatcher.appendIgnoreRule(
+        this.props.repository,
+        pattern
+      )
+    } catch (error) {
+      log.error('Failed to ignore pattern(s)', error)
+      await this.props.dispatcher.postError(error)
+    }
   }
 
   /**
@@ -484,7 +491,6 @@ export class ChangesSidebar extends React.Component<IChangesSidebarProps, {}> {
           accounts={this.props.accounts}
           fileListFilter={this.props.changes.fileListFilter}
           showChangesFilter={this.props.showChangesFilter}
-          hasCommitHooks={this.props.hasCommitHooks}
           skipCommitHooks={this.props.skipCommitHooks}
           signOffCommits={this.props.signOffCommits}
           allowEmptyCommit={this.props.allowEmptyCommit}

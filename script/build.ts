@@ -2,7 +2,6 @@
 /// <reference path="./globals.d.ts" />
 
 import * as cp from 'child_process'
-import packager, { OfficialArch, OsxNotarizeOptions } from 'electron-packager'
 import frontMatter from 'front-matter'
 import * as os from 'os'
 import * as path from 'path'
@@ -22,6 +21,19 @@ export interface ILicense {
   readonly featured: boolean
   readonly body: string
   readonly hidden: boolean
+}
+
+type DesktopPackageArch = 'arm64' | 'x64'
+type DesktopPackagePlatform = 'darwin' | 'linux' | 'win32'
+
+interface IDesktopPackagerModule {
+  readonly packager: (options: object) => Promise<ReadonlyArray<string>>
+}
+
+interface IOSXNotarizeOptions {
+  readonly appleId: string
+  readonly appleIdPassword: string
+  readonly teamId: string
 }
 
 import {
@@ -54,9 +66,9 @@ import { updateLicenseDump } from './licenses/update-license-dump'
 import { verifyInjectedSassVariables } from './validate-sass/validate-all'
 import { join } from 'path'
 import assert from 'assert'
+import { copyCopilotDependency } from './copilot'
 
 const isPublishableBuild = isPublishable()
-const isNonProductionRelease = getChannel() !== 'production'
 const isDevelopmentBuild = getChannel() === 'development'
 const shouldSkipPackaging = process.env.DESKTOP_SKIP_PACKAGE === '1'
 
@@ -138,10 +150,15 @@ verifyInjectedSassVariables(outRoot)
     console.log(`Built to ${appPaths}`)
   })
 
-function packageApp() {
+async function packageApp() {
+  const packagerModuleName = '@electron/packager'
+  const { packager }: IDesktopPackagerModule = await import(packagerModuleName)
+
   // not sure if this is needed anywhere, so I'm just going to inline it here
   // for now and see what the future brings...
-  const toPackagePlatform = (platform: NodeJS.Platform) => {
+  const toPackagePlatform = (
+    platform: NodeJS.Platform
+  ): DesktopPackagePlatform => {
     if (platform === 'win32' || platform === 'darwin' || platform === 'linux') {
       return platform
     }
@@ -150,7 +167,9 @@ function packageApp() {
     )
   }
 
-  const toPackageArch = (targetArch: string | undefined): OfficialArch => {
+  const toPackageArch = (
+    targetArch: string | undefined
+  ): DesktopPackageArch => {
     if (targetArch === undefined) {
       targetArch = os.arch()
     }
@@ -199,9 +218,13 @@ function packageApp() {
   // nested Electron Framework with a mismatched signature and dyld refuses to
   // load it ("different Team IDs"). Deep re-signing the finished bundle with
   // the ad-hoc identity makes every nested binary consistent.
-  const adhocResign = (appPaths: string | string[]) => {
+  const adhocResign = <T extends string | ReadonlyArray<string>>(
+    appPaths: T
+  ) => {
     if (process.platform === 'darwin' && osxNotarize === undefined) {
-      for (const appPath of Array.isArray(appPaths) ? appPaths : [appPaths]) {
+      const paths: ReadonlyArray<string> =
+        typeof appPaths === 'string' ? [appPaths] : appPaths
+      for (const appPath of paths) {
         const bundle = join(appPath, `${getProductName()}.app`)
         if (existsSync(bundle)) {
           console.log(`Ad-hoc re-signing ${bundle}…`)
@@ -218,16 +241,21 @@ function packageApp() {
     arch: toPackageArch(process.env.TARGET_ARCH),
     asar: false, // TODO: Probably wanna enable this down the road.
     out: getDistRoot(),
-    icon: join(iconPath, 'icon-logo'),
+    // Packager probes for a sibling .icon file and requires macOS 26 to compile
+    // it. Use a distinct basename so older build hosts use the prebuilt ICNS.
+    icon: join(
+      iconPath,
+      process.platform === 'darwin' ? 'icon-logo-legacy.icns' : 'icon-logo'
+    ),
     extraResource: [assetsCarPath],
     dir: outRoot,
     overwrite: true,
     tmpdir: false,
-    derefSymlinks: false,
+    derefSymlinks: true,
     prune: false, // We'll prune them ourselves below.
     ignore: [
       new RegExp('/node_modules/electron($|/)'),
-      new RegExp('/node_modules/electron-packager($|/)'),
+      new RegExp('/node_modules/@electron/packager($|/)'),
       new RegExp('/\\.git($|/)'),
       new RegExp('/node_modules/\\.bin($|/)'),
     ],
@@ -384,56 +412,13 @@ function copyDependencies() {
     { recursive: true, verbatimSymlinks: true }
   )
 
-  if (isNonProductionRelease) {
-    console.log('  Copying copilot…')
-    const copilotPkgDir = path.resolve(
-      projectRoot,
-      `app/node_modules/@github/copilot`
-    )
-
-    const copilotDestination = path.resolve(outRoot, 'copilot')
-    cpSync(copilotPkgDir, copilotDestination, {
-      recursive: true,
-    })
-
-    const nonValidPlatforms = ['darwin', 'linux', 'win32'].filter(
-      p => p !== process.platform
-    )
-    const nonValidArchitectures = ['x64', 'arm64'].filter(
-      a => a !== getDistArchitecture()
-    )
-
-    // Removing unnecessary prebuild binaries from the copilot package to reduce
-    // bundle size
-    const prebuildsDirs = [
-      path.join(copilotDestination, 'prebuilds'),
-      path.join(copilotDestination, 'ripgrep', 'bin'),
-      path.join(copilotDestination, 'clipboard', 'node_modules', '@teddyzhu'),
-    ]
-
-    for (const prebuildsDir of prebuildsDirs) {
-      const prebuilds = readdirSync(prebuildsDir)
-      for (const prebuild of prebuilds) {
-        for (const platform of nonValidPlatforms) {
-          if (prebuild.includes(platform)) {
-            rmSync(path.join(prebuildsDir, prebuild), {
-              recursive: true,
-              force: true,
-            })
-          }
-        }
-
-        for (const arch of nonValidArchitectures) {
-          if (prebuild.includes(arch)) {
-            rmSync(path.join(prebuildsDir, prebuild), {
-              recursive: true,
-              force: true,
-            })
-          }
-        }
-      }
-    }
-  }
+  console.log('  Copying copilot…')
+  copyCopilotDependency(
+    path.join(projectRoot, 'app', 'node_modules'),
+    path.join(outRoot, 'copilot'),
+    process.platform,
+    getDistArchitecture()
+  )
 
   // Dev builds for macOS require a SSH wrapper to use SSH_ASKPASS
   if (process.platform === 'darwin' && isDevelopmentBuild) {
@@ -570,7 +555,7 @@ ${licenseText}`
   rmSync(chooseALicense, { recursive: true, force: true })
 }
 
-function getNotarizationOptions(): OsxNotarizeOptions | undefined {
+function getNotarizationOptions(): IOSXNotarizeOptions | undefined {
   const {
     APPLE_ID: appleId,
     APPLE_ID_PASSWORD: appleIdPassword,
@@ -578,6 +563,6 @@ function getNotarizationOptions(): OsxNotarizeOptions | undefined {
   } = process.env
 
   return appleId && appleIdPassword && teamId
-    ? { tool: 'notarytool', appleId, appleIdPassword, teamId }
+    ? { appleId, appleIdPassword, teamId }
     : undefined
 }

@@ -22,7 +22,7 @@ permissions:
   contents: write
 
 env:
-  NODE_VERSION: 24.11.1
+  NODE_VERSION: 24.19.0
 
 jobs:
   create-release:

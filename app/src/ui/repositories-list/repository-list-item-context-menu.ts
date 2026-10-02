@@ -1,7 +1,7 @@
 import { Repository } from '../../models/repository'
 import { IMenuItem } from '../../lib/menu-item'
 import { Repositoryish } from './group-repositories'
-import { clipboard } from 'electron'
+import { writeClipboardText } from '../main-process-proxy'
 import {
   RevealInFileManagerLabel,
   DefaultEditorLabel,
@@ -25,6 +25,8 @@ interface IRepositoryListItemContextMenuConfig {
   onMoveToFolder: (repository: Repository, folderId: number | null) => void
   onCreateFolder: (parentId?: number | null) => void
   folders: ReadonlyArray<IRepositoryFolder>
+  onCreateWorktree?: (repository: Repository) => void
+  onShowWorktrees?: (repository: Repository) => void
 }
 
 export const generateRepositoryListContextMenu = (
@@ -45,13 +47,14 @@ export const generateRepositoryListContextMenu = (
     ...buildFavoriteMenuItem(config),
     ...buildFolderMenuItems(config),
     ...buildAliasMenuItems(config),
+    ...buildWorktreeMenuItems(config),
     {
       label: __DARWIN__ ? 'Copy Repo Name' : 'Copy repo name',
-      action: () => clipboard.writeText(repository.name),
+      action: () => writeClipboardText(repository.name),
     },
     {
       label: __DARWIN__ ? 'Copy Repo Path' : 'Copy repo path',
-      action: () => clipboard.writeText(repository.path),
+      action: () => writeClipboardText(repository.path),
     },
     { type: 'separator' },
     {
@@ -225,6 +228,38 @@ const buildAliasMenuItems = (
     items.push({
       label: __DARWIN__ ? 'Remove Alias' : 'Remove alias',
       action: () => config.onRemoveRepositoryAlias(repository),
+    })
+  }
+
+  return items
+}
+
+const buildWorktreeMenuItems = (
+  config: IRepositoryListItemContextMenuConfig
+): ReadonlyArray<IMenuItem> => {
+  const { repository, onCreateWorktree, onShowWorktrees } = config
+
+  if (!(repository instanceof Repository)) {
+    return []
+  }
+
+  if (onCreateWorktree === undefined && onShowWorktrees === undefined) {
+    return []
+  }
+
+  const items: Array<IMenuItem> = []
+
+  if (onShowWorktrees !== undefined) {
+    items.push({
+      label: __DARWIN__ ? 'Show Worktrees' : 'Show worktrees',
+      action: () => onShowWorktrees(repository),
+    })
+  }
+
+  if (onCreateWorktree !== undefined) {
+    items.push({
+      label: __DARWIN__ ? 'New Worktree…' : 'New worktree…',
+      action: () => onCreateWorktree(repository),
     })
   }
 

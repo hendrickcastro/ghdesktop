@@ -107,8 +107,10 @@ export const enableCommitMessageGeneration = (account: Account) => {
 }
 
 export const enableCopilotSdkCommitMessageGeneration = (account: Account) => {
+  // Enabled for all users in beta and development channels, and for users with
+  // the feature flag enabled in production.
   return (
-    enableBetaFeatures() &&
+    enableBetaFeatures() ||
     (account.features ?? []).includes(
       'desktop_enable_copilot_sdk_commit_message_generation'
     )
@@ -116,9 +118,7 @@ export const enableCopilotSdkCommitMessageGeneration = (account: Account) => {
 }
 
 /** Should we enable Copilot-powered merge conflict resolution? */
-export function enableCopilotConflictResolution(): boolean {
-  return enableDevelopmentFeatures()
-}
+export const enableCopilotConflictResolution = () => true
 
 export function enableAccessibleListToolTips(): boolean {
   return enableBetaFeatures()
@@ -128,4 +128,16 @@ export const enableHooksEnvironment = () => true
 
 export const enableHooksByDefault = enableBetaFeatures
 
-export const enableFormattingPreferences = enableBetaFeatures
+export const enableFormattingPreferences = () => true
+
+/** Should the app enable worktree support? */
+export const enableWorktreeSupport = () => true
+
+/** Should the app offer handoff to the GitHub Copilot app? */
+export const enableCopilotAppHandoff = () =>
+  (__DARWIN__ || __WIN32__) && enableBetaFeatures()
+
+/** Should stats be sent to the new telemetry endpoint? */
+export function enableNewStatsEndpoint(): boolean {
+  return enableBetaFeatures()
+}

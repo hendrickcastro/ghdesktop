@@ -36,7 +36,7 @@ import { ChangedFile } from './changed-file'
 import { IAutocompletionProvider } from '../autocompletion'
 import { showContextualMenu } from '../../lib/menu-item'
 import { arrayEquals } from '../../lib/equality'
-import { clipboard } from 'electron'
+import { writeClipboardText } from '../main-process-proxy'
 import { basename } from 'path'
 import { Commit, ICommitContext } from '../../models/commit'
 import {
@@ -223,12 +223,6 @@ interface IFilterChangesListProps {
 
   /** Whether or not to show the changes filter */
   readonly showChangesFilter: boolean
-
-  /**
-   * Whether there are any hooks in the repository that could be
-   * skipped during commit with the --no-verify flag
-   */
-  readonly hasCommitHooks: boolean
 
   /**
    * Whether or not to skip blocking commit hooks when creating commits
@@ -591,7 +585,7 @@ export class FilterChangesList extends React.Component<
       label: CopyFilePathLabel,
       action: () => {
         const fullPath = Path.join(this.props.repository.path, file.path)
-        clipboard.writeText(fullPath)
+        writeClipboardText(fullPath)
       },
     }
   }
@@ -601,7 +595,7 @@ export class FilterChangesList extends React.Component<
   ): IMenuItem => {
     return {
       label: CopyRelativeFilePathLabel,
-      action: () => clipboard.writeText(Path.normalize(file.path)),
+      action: () => writeClipboardText(Path.normalize(file.path)),
     }
   }
 
@@ -614,7 +608,7 @@ export class FilterChangesList extends React.Component<
         const fullPaths = files.map(file =>
           Path.join(this.props.repository.path, file.path)
         )
-        clipboard.writeText(fullPaths.join(EOL))
+        writeClipboardText(fullPaths.join(EOL))
       },
     }
   }
@@ -626,7 +620,7 @@ export class FilterChangesList extends React.Component<
       label: CopySelectedRelativePathsLabel,
       action: () => {
         const paths = files.map(file => Path.normalize(file.path))
-        clipboard.writeText(paths.join(EOL))
+        writeClipboardText(paths.join(EOL))
       },
     }
   }
@@ -1006,6 +1000,7 @@ export class FilterChangesList extends React.Component<
         }
         onPersistCommitMessage={this.onPersistCommitMessage}
         onGenerateCommitMessage={this.onGenerateCommitMessage}
+        onCancelGenerateCommitMessage={this.onCancelGenerateCommitMessage}
         onCommitMessageFocusSet={this.onCommitMessageFocusSet}
         onRefreshAuthor={this.onRefreshAuthor}
         onShowPopup={this.onShowPopup}
@@ -1017,7 +1012,6 @@ export class FilterChangesList extends React.Component<
         accounts={this.props.accounts}
         onSuccessfulCommitCreated={this.onSuccessfulCommitCreated}
         submitButtonAriaDescribedBy={'hidden-changes-warning'}
-        hasCommitHooks={this.props.hasCommitHooks}
         skipCommitHooks={this.props.skipCommitHooks}
         signOffCommits={this.props.signOffCommits}
         allowEmptyCommit={this.props.allowEmptyCommit}
@@ -1073,6 +1067,10 @@ export class FilterChangesList extends React.Component<
           this.props.repository,
           filesSelected
         )
+  }
+
+  private onCancelGenerateCommitMessage = () => {
+    this.props.dispatcher.cancelGenerateCommitMessage(this.props.repository)
   }
 
   private onShowPopup = (p: Popup) => this.props.dispatcher.showPopup(p)

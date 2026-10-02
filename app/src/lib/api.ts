@@ -26,7 +26,7 @@ import {
   suppressCertificateErrorFor,
 } from './suppress-certificate-error'
 import { HttpStatusCode } from './http-status-code'
-import { CopilotError } from './copilot-error'
+import { CopilotError, parseCopilotPaymentRequiredError } from './copilot-error'
 import { BypassReasonType } from '../ui/secret-scanning/bypass-push-protection-dialog'
 
 const envEndpoint = process.env['DESKTOP_GITHUB_DOTCOM_API_ENDPOINT']
@@ -54,6 +54,7 @@ type ViewerCopilotResponse = {
       readonly copilotEndpoints: {
         readonly api: string
       }
+      readonly copilotLicenseType: string
       readonly isCopilotDesktopEnabled: boolean
     }
   }
@@ -63,6 +64,7 @@ type ViewerCopilotResponse = {
 type UserCopilotInfo = {
   readonly isCopilotDesktopEnabled: boolean
   readonly copilotEndpoint: string
+  readonly copilotLicenseType: string
 }
 
 /** Response type Copilot chat completions response API */
@@ -828,6 +830,7 @@ export class API {
 
   public static onTokenInvalidated(callback: TokenInvalidatedCallback) {
     this.tokenInvalidatedListeners.add(callback)
+    return () => this.tokenInvalidatedListeners.delete(callback)
   }
 
   private static emitTokenInvalidated(endpoint: string, token: string) {
@@ -1665,10 +1668,16 @@ export class API {
     }
   }
 
+  /**
+   * Fetch the repository's protected branches.
+   *
+   * Returns an empty array when the request succeeds and no protected branches
+   * exist, or null when the protected branch list could not be refreshed.
+   */
   public async fetchProtectedBranches(
     owner: string,
     name: string
-  ): Promise<ReadonlyArray<IAPIBranch>> {
+  ): Promise<ReadonlyArray<IAPIBranch> | null> {
     const path = `repos/${owner}/${name}/branches?protected=true`
     try {
       const response = await this.ghRequest('GET', path)
@@ -1678,7 +1687,7 @@ export class API {
         `[fetchProtectedBranches] unable to list protected branches`,
         err
       )
-      return new Array<IAPIBranch>()
+      return null
     }
   }
 
@@ -1896,10 +1905,10 @@ export class API {
         )
       }
     } else if (response.status === HttpStatusCode.PaymentRequired) {
-      const errorMsg =
-        (await response.text()) || 'You have reached your quota limit.'
-
-      throw new CopilotError(errorMsg, response.status)
+      throw parseCopilotPaymentRequiredError(
+        await response.text(),
+        response.headers.get('Retry-After')
+      )
     } else if (response.status === HttpStatusCode.Unauthorized) {
       throw new CopilotError(
         'Unauthorized: error with authentication.',
@@ -2124,6 +2133,7 @@ export class API {
           api
         }
 
+        copilotLicenseType
         isCopilotDesktopEnabled
       }
     }
@@ -2132,6 +2142,9 @@ export class API {
     try {
       const response = await this.ghRequest('POST', '/graphql', {
         body: { query: graphql },
+        customHeaders: {
+          'GraphQL-Features': 'copilot_iap_max_sku',
+        },
       })
       if (response === null) {
         return undefined
@@ -2143,6 +2156,7 @@ export class API {
       return {
         copilotEndpoint: viewer.copilotEndpoints.api,
         isCopilotDesktopEnabled: viewer.isCopilotDesktopEnabled,
+        copilotLicenseType: viewer.copilotLicenseType,
       }
     } catch (e) {
       log.warn(`fetchUserCopilotInfo: failed with endpoint ${this.endpoint}`, e)
@@ -2242,7 +2256,8 @@ export async function fetchUser(
       user.plan?.name,
       copilotInfo?.copilotEndpoint,
       copilotInfo?.isCopilotDesktopEnabled,
-      features
+      features,
+      copilotInfo?.copilotLicenseType
     )
   } catch (e) {
     log.warn(`fetchUser: failed with endpoint ${endpoint}`, e)

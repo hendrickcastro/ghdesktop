@@ -43,12 +43,19 @@ type IFilterListRow<T extends IFilterListItem, GroupIdentifier> =
   | IFlattenedGroup<GroupIdentifier>
   | IFlattenedItem<T>
 
+interface ISectionFilterListRowHeightInfo<T extends IFilterListItem> {
+  readonly index: RowIndexPath
+  readonly item: T | null
+}
+
 interface ISectionFilterListProps<T extends IFilterListItem, GroupIdentifier> {
   /** A class name for the wrapping element. */
   readonly className?: string
 
   /** The height of the rows. */
-  readonly rowHeight: number
+  readonly rowHeight:
+    | number
+    | ((info: ISectionFilterListRowHeightInfo<T>) => number)
 
   /** The ordered groups to display in the list. */
   // eslint-disable-next-line react/no-unused-prop-types
@@ -396,7 +403,7 @@ export class SectionFilterList<
           sectionHasHeader={this.sectionHasHeader}
           getRowAriaLabel={this.getRowAriaLabel}
           getSectionAriaLabel={this.getSectionAriaLabel}
-          rowHeight={this.props.rowHeight}
+          rowHeight={this.getRowHeight}
           selectedRows={
             rowIndexPathEquals(this.state.selectedRow, InvalidRowIndexPath)
               ? []
@@ -419,6 +426,20 @@ export class SectionFilterList<
   private sectionHasHeader = (section: number) => {
     const rows = this.state.rows[section]
     return rows.length > 0 && rows[0].kind === 'group'
+  }
+
+  private getRowHeight = ({ index }: { readonly index: RowIndexPath }) => {
+    const rowHeight = this.props.rowHeight
+
+    if (typeof rowHeight === 'number') {
+      return rowHeight
+    }
+
+    const row = this.state.rows[index.section]?.[index.row]
+    return rowHeight({
+      index,
+      item: row?.kind === 'item' ? row.item : null,
+    })
   }
 
   private getRowAriaLabel = (index: RowIndexPath) => {
@@ -737,6 +758,7 @@ function createStateUpdate<T extends IFilterListItem, GroupIdentifier>(
 
     const showHeader =
       props.renderGroupHeader &&
+      group.showHeader !== false &&
       (props.shouldRenderGroupHeader?.(group.identifier) ?? true)
 
     if (showHeader) {

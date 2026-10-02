@@ -35,6 +35,9 @@ export interface IDailyMeasures {
   /** The number of times the user has opened a shell from the app. */
   readonly openShellCount: number
 
+  /** The number of times the user invoked the GitHub Copilot app handoff. */
+  readonly openInCopilotAppCount: number
+
   /** The number of partial commits. */
   readonly partialCommits: number
 
@@ -660,6 +663,60 @@ export interface IDailyMeasures {
 
   /** The number of times the user clicked on the secret remediation instructions link */
   readonly secretRemediationInstructionsLinkClickedCount: number
+
+  /** The number of times the user switched between worktrees */
+  readonly worktreeSwitchCount: number
+
+  /** The number of times the user created a new worktree */
+  readonly worktreeCreatedCount: number
+
+  /** The number of times the user deleted a worktree */
+  readonly worktreeDeletedCount: number
+
+  /**
+   * The maximum number of worktrees seen in any single repository during the
+   * reporting period.
+   */
+  readonly worktreeMaxCount: number
+
+  /** The number of times the user initiated Copilot conflict resolution */
+  readonly initiateResolveConflictsWithCopilotCount: number
+
+  /** The number of times the user accepted Copilot conflict resolution suggestions */
+  readonly copilotConflictResolutionAcceptedCount: number
+
+  /** The number of accepted resolutions where the user overrode at least one file */
+  readonly copilotConflictResolutionWithOverridesCount: number
+
+  /** The number of times the user switched to manual resolution after seeing Copilot suggestions */
+  readonly copilotConflictResolutionSwitchToManualCount: number
+
+  /** The number of times the user stopped Copilot conflict resolution while loading */
+  readonly copilotConflictResolutionStoppedCount: number
+
+  /** The number of times the conflict state disappeared after Copilot resolution was initiated */
+  readonly copilotConflictResolutionNoConflictStateCount: number
+
+  /** The number of times all conflicted files disappeared after Copilot resolution was initiated */
+  readonly copilotConflictResolutionNoConflictedFilesCount: number
+
+  /** The number of times every conflicted file was skipped by Copilot resolution */
+  readonly copilotConflictResolutionAllFilesSkippedCount: number
+
+  /** The number of times Copilot conflict resolution failed with an error */
+  readonly copilotConflictResolutionErrorCount: number
+
+  /** The number of Copilot conflict resolutions that took over 15 seconds */
+  readonly copilotConflictResolutionOver15sCount: number
+
+  /** The number of Copilot conflict resolutions that took over 30 seconds */
+  readonly copilotConflictResolutionOver30sCount: number
+
+  /** The number of Copilot conflict resolutions that took over 60 seconds */
+  readonly copilotConflictResolutionOver60sCount: number
+
+  /** The number of Copilot conflict resolutions that took over 120 seconds */
+  readonly copilotConflictResolutionOver120sCount: number
 }
 
 export class StatsDatabase extends Dexie {

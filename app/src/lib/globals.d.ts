@@ -50,6 +50,12 @@ declare const __RELEASE_CHANNEL__:
 /** The URL for Squirrel's updates. */
 declare const __UPDATES_URL__: string
 
+/** The URL for fatal exception reports. */
+declare const __ERROR_REPORTING_ENDPOINT__: string | undefined
+
+/** The URL for non-fatal exception reports. */
+declare const __NON_FATAL_ERROR_REPORTING_ENDPOINT__: string | undefined
+
 /**
  * The `owner/repo` whose GitHub releases this build updates itself from, or an
  * empty string when this build shouldn't check.

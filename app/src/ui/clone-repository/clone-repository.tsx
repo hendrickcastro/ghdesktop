@@ -12,6 +12,7 @@ import {
   IRepositoryIdentifier,
   parseRepositoryIdentifier,
   parseRemote,
+  sanitizeCloneName,
 } from '../../lib/remote-parsing'
 import { findAccountForRemoteURL } from '../../lib/find-account'
 import { API, IAPIRepository, IAPIRepositoryCloneInfo } from '../../lib/api'
@@ -653,9 +654,14 @@ export class CloneRepository extends React.Component<
 
     const results = await Promise.all(
       [...checked.values()].map(async candidate => {
-        const error = await this.validateEmptyFolder(
-          Path.join(path, candidate.name)
-        )
+        const safeName = sanitizeCloneName(candidate.name)
+        if (safeName === null) {
+          return [
+            candidate.url,
+            `'${candidate.name}' can't be used as a folder name.`,
+          ] as const
+        }
+        const error = await this.validateClonePath(Path.join(path, safeName))
         return [candidate.url, error?.message ?? null] as const
       })
     )
@@ -705,8 +711,15 @@ export class CloneRepository extends React.Component<
     const queue = [...candidates]
     const worker = async () => {
       for (let c = queue.shift(); c !== undefined; c = queue.shift()) {
+        // Names come from the server; never let one climb out of the chosen
+        // folder.
+        const safeName = sanitizeCloneName(c.name)
+        if (safeName === null) {
+          log.error(`CloneRepository: skipping ${c.url}, unusable name`)
+          continue
+        }
         try {
-          await this.props.dispatcher.clone(c.url, Path.join(path, c.name), {
+          await this.props.dispatcher.clone(c.url, Path.join(path, safeName), {
             defaultBranch: c.defaultBranch,
           })
         } catch (e) {
@@ -983,7 +996,7 @@ export class CloneRepository extends React.Component<
         this.setSelectedTabState({ error: null })
       }
     } else {
-      const pathValidation = await this.validateEmptyFolder(path)
+      const pathValidation = await this.validateClonePath(path)
 
       // We only care about the result if the path hasn't
       // changed since we went async
@@ -1016,11 +1029,12 @@ export class CloneRepository extends React.Component<
 
     const tabState = this.getSelectedTabState()
     const lastParsedIdentifier = tabState.lastParsedIdentifier
+    const safeName = lastParsedIdentifier
+      ? sanitizeCloneName(lastParsedIdentifier.name)
+      : null
     // In multi-clone mode the chosen folder is the parent itself.
     const directory =
-      lastParsedIdentifier && !this.isMultiClone()
-        ? Path.join(path, lastParsedIdentifier.name)
-        : path
+      safeName && !this.isMultiClone() ? Path.join(path, safeName) : path
 
     this.setSelectedTabState(
       { path: directory, error: null },
@@ -1061,17 +1075,19 @@ export class CloneRepository extends React.Component<
       return
     }
 
+    const safeName = parsed ? sanitizeCloneName(parsed.name) : null
+
     let newPath: string
 
     const dirPath = tabState.path
     if (lastParsedIdentifier) {
-      if (parsed) {
-        newPath = Path.join(Path.dirname(dirPath), parsed.name)
+      if (safeName) {
+        newPath = Path.join(Path.dirname(dirPath), safeName)
       } else {
         newPath = Path.dirname(dirPath)
       }
-    } else if (parsed) {
-      newPath = Path.join(dirPath, parsed.name)
+    } else if (safeName) {
+      newPath = Path.join(dirPath, safeName)
     } else {
       newPath = dirPath
     }
@@ -1086,12 +1102,20 @@ export class CloneRepository extends React.Component<
     )
   }
 
-  private async validateEmptyFolder(
-    path: string | null
-  ): Promise<null | Error> {
+  /** Validate the destination before cloning can create files in it. */
+  private async validateClonePath(path: string | null): Promise<null | Error> {
     if (path === null) {
       return new Error(
         'Unable to read path on disk. Please check the path and try again.'
+      )
+    }
+
+    if (
+      __DARWIN__ &&
+      Path.basename(Path.resolve(path)).toLowerCase().endsWith('.app')
+    ) {
+      return new Error(
+        'The local path cannot end in .app on macOS. Choose a different folder name to avoid creating an application bundle.'
       )
     }
 
@@ -1180,7 +1204,6 @@ export class CloneRepository extends React.Component<
 
     this.setState({ loading: true })
 
-    const cloneInfo = await this.resolveCloneInfo()
     const { path } = this.getSelectedTabState()
 
     if (path == null) {
@@ -1190,6 +1213,14 @@ export class CloneRepository extends React.Component<
       return
     }
 
+    const pathError = await this.validateClonePath(path)
+    if (pathError !== null) {
+      this.setState({ loading: false })
+      this.setSelectedTabState({ error: pathError })
+      return
+    }
+
+    const cloneInfo = await this.resolveCloneInfo()
     if (!cloneInfo) {
       const error = new Error(
         `We couldn't find that repository. Check that you are logged in, the network is accessible, and the URL or repository alias are spelled correctly.`

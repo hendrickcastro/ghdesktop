@@ -20,6 +20,9 @@
     .tab-container {
       border-left: var(--base-border);
       flex: 1;
+      // Without this, a tab whose content has long unbroken text can
+      // grow past the dialog's max-width and break out the right edge.
+      min-width: 0;
     }
 
     fieldset {
@@ -62,6 +65,10 @@
       margin-top: var(--spacing);
       margin-bottom: var(--spacing);
     }
+  }
+
+  .always-show-worktree-list {
+    margin-top: var(--spacing);
   }
 
   .accounts-tab {
@@ -139,10 +146,14 @@
     }
   }
 
-  .git-settings-description {
+  .settings-description {
     margin-top: var(--spacing);
     font-size: var(--font-size-sm);
     color: var(--text-secondary-color);
+  }
+
+  .example-link {
+    cursor: default !important;
   }
 
   .theme-selector {
