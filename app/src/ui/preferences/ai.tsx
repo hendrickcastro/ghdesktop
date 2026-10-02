@@ -92,6 +92,12 @@ export class AI extends React.Component<
   IAIPreferencesProps,
   IAIPreferencesState
 > {
+  /**
+   * The provider whose list we've already tried to load, so a failed attempt
+   * isn't retried on every render.
+   */
+  private autoLoadedFor: AIProvider | null = null
+
   public constructor(props: IAIPreferencesProps) {
     super(props)
     this.state = {
@@ -101,12 +107,6 @@ export class AI extends React.Component<
       filter: '',
     }
   }
-
-  /**
-   * The provider whose list we've already tried to load, so a failed attempt
-   * isn't retried on every render.
-   */
-  private autoLoadedFor: AIProvider | null = null
 
   public componentDidMount() {
     this.maybeAutoLoadModels()

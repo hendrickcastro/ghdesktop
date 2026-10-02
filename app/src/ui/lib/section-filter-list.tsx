@@ -76,6 +76,7 @@ interface ISectionFilterListProps<T extends IFilterListItem, GroupIdentifier> {
   ) => JSX.Element | null
 
   /** Return false to suppress the header row for a specific group. */
+  // eslint-disable-next-line react/no-unused-prop-types
   readonly shouldRenderGroupHeader?: (identifier: GroupIdentifier) => boolean
 
   /** Called to render content before/above the filter and list. */
@@ -176,6 +177,7 @@ interface ISectionFilterListProps<T extends IFilterListItem, GroupIdentifier> {
    * Called to determine whether a group is collapsed. When a group is
    * collapsed only the group header is shown, items are hidden.
    */
+  // eslint-disable-next-line react/no-unused-prop-types
   readonly isGroupCollapsed?: (identifier: GroupIdentifier) => boolean
 
   /**

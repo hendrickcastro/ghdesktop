@@ -27,9 +27,9 @@ import { SectionFilterList } from '../lib/section-filter-list'
 import { assertNever } from '../../lib/fatal-error'
 import { IAheadBehind } from '../../models/branch'
 import { IRepositoryFolder } from '../../models/repository-folder'
-import classNames from 'classnames'
 import { commitGrammar } from './repository-list-item'
 import { getStringArray, setStringArray } from '../../lib/local-storage'
+import { CollapsibleGroupHeader } from './collapsible-group-header'
 
 const BlankSlateImage = encodePathAsUrl(__dirname, 'static/empty-no-repo.svg')
 const collapsedGroupsKey = 'collapsed-repo-groups'
@@ -522,24 +522,17 @@ export class RepositoriesList extends React.Component<
     }
 
     if (collapsible) {
-      const style = depth > 0 ? { paddingLeft: `${depth * 16}px` } : undefined
       return (
-        <div
+        <CollapsibleGroupHeader
           key={getGroupKey(group)}
-          className={classNames('filter-list-group-header', 'collapsible', {
-            collapsed,
-          })}
-          style={style}
-          onClick={() => this.onToggleGroupCollapse(group)}
-          onContextMenu={e => this.onFolderHeaderContextMenu(group, e)}
-        >
-          <Octicon
-            symbol={octicons.chevronRight}
-            className="collapse-chevron"
-          />
-          {icon}
-          {label}
-        </div>
+          group={group}
+          collapsed={collapsed}
+          depth={depth}
+          icon={icon}
+          label={label}
+          onToggle={this.onToggleGroupCollapse}
+          onContextMenu={this.onFolderHeaderContextMenu}
+        />
       )
     }
 
