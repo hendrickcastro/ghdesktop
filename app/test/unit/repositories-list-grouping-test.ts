@@ -1,6 +1,9 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert'
-import { groupRepositories } from '../../src/ui/repositories-list/group-repositories'
+import {
+  groupRepositories,
+  getRepositoryTitle,
+} from '../../src/ui/repositories-list/group-repositories'
 import { Repository, ILocalRepositoryState } from '../../src/models/repository'
 import { CloningRepository } from '../../src/models/cloning-repository'
 import { gitHubRepoFixture } from '../helpers/github-repo-builder'
@@ -185,6 +188,17 @@ describe('repository list grouping', () => {
         grouped[0].items.map(i => i.worktreeParent?.id ?? null),
         [null, 1, 1, null]
       )
+    })
+
+    it('titles a worktree as parent : worktree', () => {
+      const parent = worktree('/repos/project', 1, '/repos/project')
+      const wt = worktree('/wt/project/fix-b', 2, '/repos/project')
+
+      assert.equal(getRepositoryTitle(parent, [parent, wt]), 'project')
+      assert.equal(getRepositoryTitle(wt, [parent, wt]), 'project : fix-b')
+      // Falls back to the main worktree's directory name when the parent
+      // isn't listed.
+      assert.equal(getRepositoryTitle(wt, [wt]), 'project : fix-b')
     })
 
     it('lists a worktree on its own when its parent is not listed', () => {

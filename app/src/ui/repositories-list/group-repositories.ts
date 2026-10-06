@@ -312,6 +312,34 @@ const getDisplayTitle = (r: Repositoryish) =>
 export const getWorktreeDisplayTitle = (r: Repository) =>
   r.alias ?? Path.basename(r.path)
 
+/**
+ * Returns the title for a repository shown on its own, e.g. in the toolbar.
+ * A linked worktree reads `parent : worktree`, so it's clear which repository
+ * it belongs to. The parent is the listed repository of its main worktree, or
+ * the main worktree's directory name when that isn't listed.
+ */
+export function getRepositoryTitle(
+  repository: Repositoryish,
+  repositories: ReadonlyArray<Repositoryish>
+): string {
+  if (!(repository instanceof Repository) || isMainWorktree(repository)) {
+    return getDisplayTitle(repository)
+  }
+
+  const mainWorktreePath = repository.mainWorktreePath ?? repository.path
+  const parent = repositories.find(
+    r =>
+      r instanceof Repository &&
+      normalizePath(r.path) === normalizePath(mainWorktreePath)
+  )
+  const parentTitle =
+    parent !== undefined
+      ? getDisplayTitle(parent)
+      : Path.basename(mainWorktreePath)
+
+  return `${parentTitle} : ${getWorktreeDisplayTitle(repository)}`
+}
+
 const toSortedListItems = (
   group: RepositoryListGroup,
   repositories: ReadonlyArray<Repositoryish>,
