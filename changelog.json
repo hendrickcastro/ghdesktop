@@ -1,5 +1,10 @@
 {
   "releases": {
+    "3.7.1": [
+      "[Changed] A repository's worktrees are listed underneath it in the sidebar, named after their directory, and worktrees created outside the app appear there automatically",
+      "[Fixed] Choosing a branch that is checked out in another worktree no longer switches the repository to that worktree",
+      "[Fixed] Switching, renaming or removing a worktree never rewrites the path of the repository you added"
+    ],
     "3.7.0": [
       "[Improved] Brought in GitHub Desktop 3.6.0 through 3.6.7-beta2: Git worktrees, Electron 44, date/time/number formatting preferences, and the upstream fixes since April",
       "[Changed] Commit messages are generated only with the AI provider configured in Preferences > AI; Copilot is no longer offered, and no GitHub account is needed for it",
