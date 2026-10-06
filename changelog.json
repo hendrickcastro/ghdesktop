@@ -1,5 +1,8 @@
 {
   "releases": {
+    "3.7.2": [
+      "[Improved] The current repository button shows a worktree as \"parent : worktree\", naming the repository it belongs to"
+    ],
     "3.7.1": [
       "[Changed] A repository's worktrees are listed underneath it in the sidebar, named after their directory, and worktrees created outside the app appear there automatically",
       "[Fixed] Choosing a branch that is checked out in another worktree no longer switches the repository to that worktree",
