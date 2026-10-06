@@ -1,5 +1,8 @@
 {
   "releases": {
+    "3.7.3": [
+      "[Added] A branch that another worktree has checked out can be checked out anyway, after a warning naming that worktree"
+    ],
     "3.7.2": [
       "[Improved] The current repository button shows a worktree as \"parent : worktree\", naming the repository it belongs to"
     ],
