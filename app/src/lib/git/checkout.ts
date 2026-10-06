@@ -106,7 +106,8 @@ export async function checkoutBranch(
   branch: Branch,
   currentRemote: IRemote | null,
   progressCallback?: ProgressCallback,
-  allowFileProtocol: boolean = false
+  allowFileProtocol: boolean = false,
+  ignoreOtherWorktrees: boolean = false
 ): Promise<true> {
   const title = `Checking out branch ${branch.name}`
   const opts = await getCheckoutOpts(
@@ -121,7 +122,12 @@ export async function checkoutBranch(
   )
 
   const baseArgs = getCheckoutArgs(progressCallback)
-  const args = [...baseArgs, ...(await getBranchCheckoutArgs(branch))]
+  const args = [
+    ...baseArgs,
+    // Git refuses a branch another worktree has checked out unless told to.
+    ...(ignoreOtherWorktrees ? ['--ignore-other-worktrees'] : []),
+    ...(await getBranchCheckoutArgs(branch)),
+  ]
 
   await git(args, repository.path, 'checkoutBranch', opts)
 

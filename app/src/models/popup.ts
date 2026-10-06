@@ -28,6 +28,7 @@ import { BypassReasonType } from '../ui/secret-scanning/bypass-push-protection-d
 import { TerminalOutput, TerminalOutputListener } from '../lib/git'
 import type { IBYOKModel, IBYOKProvider } from '../lib/copilot/byok'
 import { WorktreeEntry } from './worktree'
+import { UncommittedChangesStrategy } from './uncommitted-changes-strategy'
 
 export enum PopupType {
   RenameBranch = 'RenameBranch',
@@ -68,6 +69,7 @@ export enum PopupType {
   ConfirmOverwriteStash = 'ConfirmOverwriteStash',
   ConfirmDiscardStash = 'ConfirmDiscardStash',
   ConfirmCheckoutCommit = 'ConfirmCheckoutCommit',
+  ConfirmCheckoutBranchInWorktree = 'ConfirmCheckoutBranchInWorktree',
   CreateTutorialRepository = 'CreateTutorialRepository',
   ConfirmExitTutorial = 'ConfirmExitTutorial',
   PushRejectedDueToMissingWorkflowScope = 'PushRejectedDueToMissingWorkflowScope',
@@ -299,6 +301,15 @@ export type PopupDetail =
       type: PopupType.ConfirmCheckoutCommit
       repository: Repository
       commit: CommitOneLine
+    }
+  | {
+      type: PopupType.ConfirmCheckoutBranchInWorktree
+      repository: Repository
+      branch: Branch
+      /** The path of the worktree that has the branch checked out */
+      worktreePath: string
+      /** How to handle local changes, already settled with the user */
+      strategy: UncommittedChangesStrategy
     }
   | {
       type: PopupType.CreateTutorialRepository

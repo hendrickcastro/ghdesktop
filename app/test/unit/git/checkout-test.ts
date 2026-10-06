@@ -17,6 +17,8 @@ import { getStatusOrThrow } from '../../helpers/status'
 import { exec } from 'dugite'
 import { TestStatsStore } from '../../helpers/test-stats-store'
 import { pathExists } from '../../../src/lib/path-exists'
+import { makeCommit } from '../../helpers/repository-scaffolding'
+import { rm } from 'fs/promises'
 
 describe('git/checkout', () => {
   it('throws when invalid characters are used for branch name', async t => {
@@ -124,6 +126,44 @@ describe('git/checkout', () => {
       checkoutBranch(repository, remoteBranch, null),
       /A branch with that name already exists./
     )
+  })
+
+  describe('a branch checked out in another worktree', () => {
+    const setup = async (t: Parameters<typeof setupEmptyRepository>[0]) => {
+      const repository = await setupEmptyRepository(t, 'main')
+      await makeCommit(repository, {
+        entries: [{ path: 'README', contents: 'hello' }],
+      })
+      await exec(['branch', 'production'], repository.path)
+
+      const worktreePath = repository.path + '-wt-production'
+      await exec(
+        ['worktree', 'add', worktreePath, 'production'],
+        repository.path
+      )
+      t.after(() => rm(worktreePath, { recursive: true, force: true }))
+
+      const [branch] = await getBranches(repository, 'refs/heads/production')
+      return { repository, branch }
+    }
+
+    it('is refused by git', async t => {
+      const { repository, branch } = await setup(t)
+
+      await assert.rejects(checkoutBranch(repository, branch, null))
+    })
+
+    it('can be checked out when ignoring other worktrees', async t => {
+      const { repository, branch } = await setup(t)
+
+      await checkoutBranch(repository, branch, null, undefined, false, true)
+
+      const head = await exec(
+        ['symbolic-ref', '--short', 'HEAD'],
+        repository.path
+      )
+      assert.equal(head.stdout.trim(), 'production')
+    })
   })
 
   describe('with submodules', () => {

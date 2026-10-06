@@ -116,9 +116,10 @@ its own path:
 - Picking a worktree - in the sidebar, the worktree dropdown, or right after
   creating one - selects that worktree's own entry. Removing or renaming a
   worktree updates its entry; the parent is never rewritten.
-- Choosing a branch never changes the selected repository. A branch that is
-  checked out in another worktree can't be checked out here too, so the app
-  says which worktree has it instead.
+- Choosing a branch never changes the selected repository. For a branch that
+  is checked out in another worktree, the app says which worktree has it and
+  offers **Checkout anyway**: both worktrees then share the branch, so a
+  commit in one shows up as uncommitted changes in the other.
 - Worktrees share their parent's branches, so you can merge a worktree's branch
   into the parent's current branch, or the other way round, with **Merge into
   current branch**.

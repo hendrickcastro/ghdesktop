@@ -120,6 +120,7 @@ import { StashAndSwitchBranch } from './stash-changes/stash-and-switch-branch-di
 import { OverwriteStash } from './stash-changes/overwrite-stashed-changes-dialog'
 import { ConfirmDiscardStashDialog } from './stashing/confirm-discard-stash'
 import { ConfirmCheckoutCommitDialog } from './checkout/confirm-checkout-commit'
+import { ConfirmCheckoutBranchInWorktreeDialog } from './checkout/confirm-checkout-branch-in-worktree'
 import { CreateTutorialRepositoryDialog } from './no-repositories/create-tutorial-repository-dialog'
 import { ConfirmExitTutorial } from './tutorial'
 import { TutorialStep, isValidTutorialStep } from '../models/tutorial-step'
@@ -2285,6 +2286,21 @@ export class App extends React.Component<IAppProps, IAppState> {
             }
             repository={repository}
             commit={commit}
+            onDismissed={onPopupDismissedFn}
+          />
+        )
+      }
+      case PopupType.ConfirmCheckoutBranchInWorktree: {
+        const { repository, branch, worktreePath, strategy } = popup
+
+        return (
+          <ConfirmCheckoutBranchInWorktreeDialog
+            key="confirm-checkout-branch-in-worktree-dialog"
+            dispatcher={this.props.dispatcher}
+            repository={repository}
+            branch={branch}
+            worktreePath={worktreePath}
+            strategy={strategy}
             onDismissed={onPopupDismissedFn}
           />
         )

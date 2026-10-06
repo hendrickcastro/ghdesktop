@@ -725,13 +725,23 @@ export class Dispatcher {
     })
   }
 
-  /** Check out the given branch. */
+  /**
+   * Check out the given branch. A branch another worktree has checked out is
+   * only checked out here too with `ignoreOtherWorktrees`; otherwise the user
+   * is asked first.
+   */
   public checkoutBranch(
     repository: Repository,
     branch: Branch,
-    strategy?: UncommittedChangesStrategy
+    strategy?: UncommittedChangesStrategy,
+    ignoreOtherWorktrees: boolean = false
   ): Promise<Repository> {
-    return this.appStore._checkoutBranch(repository, branch, strategy)
+    return this.appStore._checkoutBranch(
+      repository,
+      branch,
+      strategy,
+      ignoreOtherWorktrees
+    )
   }
 
   /** Check out the given commit. */

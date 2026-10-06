@@ -4627,7 +4627,8 @@ export class AppStore extends TypedBaseStore<IAppState> {
   public async _checkoutBranch(
     repository: Repository,
     branch: Branch,
-    explicitStrategy?: UncommittedChangesStrategy
+    explicitStrategy?: UncommittedChangesStrategy,
+    ignoreOtherWorktrees: boolean = false
   ): Promise<Repository> {
     const repositoryState = this.repositoryStateCache.get(repository)
     const { changesState, branchesState } = repositoryState
@@ -4637,21 +4638,6 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
     // No point in checking out the currently checked out branch.
     if (tip.kind === TipState.Valid && tip.branch.name === branch.name) {
-      return repository
-    }
-
-    // Git won't check out a branch that another worktree already has checked
-    // out. Say where it is instead of moving to that worktree: picking a branch
-    // never changes the selected repository.
-    const wt = repositoryState.worktrees.find(wt => wt.branch === branch.ref)
-
-    if (wt) {
-      this.emitError(
-        new Error(
-          `The branch '${branch.name}' is already checked out in the worktree at '${wt.path}'. ` +
-            `Open that worktree from the repository list, or remove it, to check out this branch here.`
-        )
-      )
       return repository
     }
 
@@ -4684,11 +4670,37 @@ export class AppStore extends TypedBaseStore<IAppState> {
       }
     }
 
+    // Git won't check out a branch that another worktree already has checked
+    // out unless told to. Ask the user rather than moving to that worktree:
+    // picking a branch never changes the selected repository. Asked last, so
+    // confirming doesn't bring the local changes prompts back.
+    const worktree = repositoryState.worktrees.find(
+      wt =>
+        wt.branch === branch.ref &&
+        matchExistingRepository([repository], wt.path) === undefined
+    )
+
+    if (worktree !== undefined && !ignoreOtherWorktrees) {
+      this._showPopup({
+        type: PopupType.ConfirmCheckoutBranchInWorktree,
+        repository,
+        branch,
+        worktreePath: worktree.path,
+        strategy,
+      })
+      return repository
+    }
+
     return this.withRefreshedGitHubRepository(repository, repository => {
       // We always want to end with refreshing the repository regardless of
       // whether the checkout succeeded or not in order to present the most
       // up-to-date information to the user.
-      return this.checkoutImplementation(repository, branch, strategy)
+      return this.checkoutImplementation(
+        repository,
+        branch,
+        strategy,
+        ignoreOtherWorktrees
+      )
         .then(() => this.onSuccessfulCheckout(repository, branch))
         .catch(async e => {
           this.emitError(new CheckoutError(e, repository, branch))
@@ -4702,16 +4714,32 @@ export class AppStore extends TypedBaseStore<IAppState> {
   private checkoutImplementation(
     repository: Repository,
     branch: Branch,
-    strategy: UncommittedChangesStrategy
+    strategy: UncommittedChangesStrategy,
+    ignoreOtherWorktrees: boolean
   ) {
     const { currentRemote } = this.gitStoreCache.get(repository)
 
     if (strategy === UncommittedChangesStrategy.StashOnCurrentBranch) {
-      return this.checkoutAndLeaveChanges(repository, branch, currentRemote)
+      return this.checkoutAndLeaveChanges(
+        repository,
+        branch,
+        currentRemote,
+        ignoreOtherWorktrees
+      )
     } else if (strategy === UncommittedChangesStrategy.MoveToNewBranch) {
-      return this.checkoutAndBringChanges(repository, branch, currentRemote)
+      return this.checkoutAndBringChanges(
+        repository,
+        branch,
+        currentRemote,
+        ignoreOtherWorktrees
+      )
     } else {
-      return this.checkoutIgnoringChanges(repository, branch, currentRemote)
+      return this.checkoutIgnoringChanges(
+        repository,
+        branch,
+        currentRemote,
+        ignoreOtherWorktrees
+      )
     }
   }
 
@@ -4719,11 +4747,19 @@ export class AppStore extends TypedBaseStore<IAppState> {
   private async checkoutIgnoringChanges(
     repository: Repository,
     branch: Branch,
-    currentRemote: IRemote | null
+    currentRemote: IRemote | null,
+    ignoreOtherWorktrees: boolean = false
   ) {
-    await checkoutBranch(repository, branch, currentRemote, progress => {
-      this.updateCheckoutProgress(repository, progress)
-    })
+    await checkoutBranch(
+      repository,
+      branch,
+      currentRemote,
+      progress => {
+        this.updateCheckoutProgress(repository, progress)
+      },
+      false,
+      ignoreOtherWorktrees
+    )
   }
 
   /**
@@ -4734,7 +4770,8 @@ export class AppStore extends TypedBaseStore<IAppState> {
   private async checkoutAndLeaveChanges(
     repository: Repository,
     branch: Branch,
-    currentRemote: IRemote | null
+    currentRemote: IRemote | null,
+    ignoreOtherWorktrees: boolean
   ) {
     const repositoryState = this.repositoryStateCache.get(repository)
     const { workingDirectory } = repositoryState.changesState
@@ -4745,7 +4782,12 @@ export class AppStore extends TypedBaseStore<IAppState> {
       this.statsStore.increment('stashCreatedOnCurrentBranchCount')
     }
 
-    return this.checkoutIgnoringChanges(repository, branch, currentRemote)
+    return this.checkoutIgnoringChanges(
+      repository,
+      branch,
+      currentRemote,
+      ignoreOtherWorktrees
+    )
   }
 
   /**
@@ -4761,10 +4803,16 @@ export class AppStore extends TypedBaseStore<IAppState> {
   private async checkoutAndBringChanges(
     repository: Repository,
     branch: Branch,
-    currentRemote: IRemote | null
+    currentRemote: IRemote | null,
+    ignoreOtherWorktrees: boolean
   ) {
     try {
-      await this.checkoutIgnoringChanges(repository, branch, currentRemote)
+      await this.checkoutIgnoringChanges(
+        repository,
+        branch,
+        currentRemote,
+        ignoreOtherWorktrees
+      )
     } catch (checkoutError) {
       if (!isLocalChangesOverwrittenError(checkoutError)) {
         throw checkoutError
@@ -4782,7 +4830,12 @@ export class AppStore extends TypedBaseStore<IAppState> {
         throw checkoutError
       }
 
-      await this.checkoutIgnoringChanges(repository, branch, currentRemote)
+      await this.checkoutIgnoringChanges(
+        repository,
+        branch,
+        currentRemote,
+        ignoreOtherWorktrees
+      )
       await popStashEntry(repository, stash.stashSha)
 
       this.statsStore.increment('changesTakenToNewBranchCount')
