@@ -1064,10 +1064,8 @@ export class Dispatcher {
   }
 
   /**
-   * Switch the repository to a different worktree path.
-   *
-   * If the target path is already registered as a separate repository, that
-   * repository is selected instead.
+   * Select the repository for a worktree, listing it under its main worktree's
+   * repository when it isn't listed yet. The given repository is left as it is.
    */
   public async switchWorktree(
     repository: Repository,
@@ -2147,8 +2145,8 @@ export class Dispatcher {
       }
 
       // Try to locate a repository that has a shared main worktree with the
-      // provided path so that we can switch to the worktree instead of adding
-      // a new repository.
+      // provided path so that the worktree is listed under it instead of going
+      // through the add repository dialog.
       const worktrees = await listWorktrees(path).catch(e => {
         log.error('Could not list worktrees', e)
         return []

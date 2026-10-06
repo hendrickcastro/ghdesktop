@@ -228,7 +228,6 @@ import {
   getRepositoryType,
   RepositoryType,
   listWorktrees,
-  resolveMainWorktreePath,
   removeWorktree,
   moveWorktree,
   getCommitRangeDiff,
@@ -3969,11 +3968,6 @@ export class AppStore extends TypedBaseStore<IAppState> {
       return recovered
     }
 
-    const recoveredWorktree = await this.recoverMissingWorktree(repository)
-    if (recoveredWorktree !== null) {
-      return recoveredWorktree
-    }
-
     return repository
   }
 
@@ -3990,57 +3984,105 @@ export class AppStore extends TypedBaseStore<IAppState> {
       })
   }
 
-  private async recoverMissingWorktree(
-    repository: Repository
+  /**
+   * The repository listed for the given worktree path, adding the worktree as
+   * a repository of its own when it isn't listed yet, or null when the path
+   * isn't a git repository.
+   *
+   * Never rewrites the path of an existing repository: the main worktree's
+   * repository is the parent of every linked worktree and keeps pointing where
+   * the user added it. An added worktree records that parent, so the
+   * repository list shows it underneath.
+   */
+  private async findOrAddWorktreeRepository(
+    path: string
   ): Promise<Repository | null> {
-    const mainWorktreePath = await resolveMainWorktreePath(repository).catch(
-      e => {
-        log.error('Could not resolve the main worktree path', e)
-        return null
-      }
-    )
-
-    if (mainWorktreePath === null) {
-      return null
+    const listed = matchExistingRepository(this.repositories, path)
+    if (listed !== undefined) {
+      return listed
     }
 
-    const type = await getRepositoryType(mainWorktreePath).catch(e => {
-      log.error('Could not determine main worktree repository type', e)
+    const type = await getRepositoryType(path).catch(e => {
+      log.error('Could not determine repository type', e)
       return { kind: 'missing' } as RepositoryType
     })
+
+    // If the path isn't trusted we'll add the repository as missing. The
+    // missing repository view knows how to add a path to the allow list.
+    if (type.kind === 'unsafe') {
+      return this.repositoriesStore.addRepository(path, undefined, {
+        missing: true,
+      })
+    }
 
     if (type.kind !== 'regular') {
       return null
     }
 
-    const result = await this.repositoriesStore.switchWorktree(
-      repository,
-      type.topLevelWorkingDirectory,
-      false,
-      type.gitDir,
-      type.topLevelWorkingDirectory
+    const worktreePath = type.topLevelWorkingDirectory
+    const existing = matchExistingRepository(this.repositories, worktreePath)
+    if (existing !== undefined) {
+      return existing
+    }
+
+    let repository = await this.repositoriesStore.addRepository(
+      worktreePath,
+      type.gitDir
     )
 
-    if (!result.existingRepository) {
-      // The main worktree exists, so its own worktree list is readable even
-      // when the metadata belonging to the removed worktree isn't.
-      const mainWorktree = await listWorktrees(type.topLevelWorkingDirectory)
-        .then(worktrees => worktrees.find(wt => wt.type === 'main'))
-        .catch(e => {
-          log.error('Could not list worktrees from the main worktree', e)
-          return undefined
-        })
-
-      if (mainWorktree !== undefined) {
-        this.repositoryStateCache.seedFromWorktree(
-          result.repository,
+    const mainWorktreePath = await this.findMainWorktreePath(worktreePath)
+    if (mainWorktreePath !== undefined) {
+      repository =
+        await this.repositoriesStore.updateRepositoryMainWorktreePath(
           repository,
-          mainWorktree
+          mainWorktreePath
         )
+    }
+
+    // initialize the remotes for this new repository to ensure it can fetch
+    // it's GitHub-related details using the GitHub API (if applicable)
+    await this.gitStoreCache.get(repository).loadRemotes()
+
+    return this.repositoryWithRefreshedGitHubRepository(repository)
+  }
+
+  /**
+   * Keep the repositories listed under a main worktree in step with git: list
+   * every linked worktree, and drop the ones whose directory is gone.
+   */
+  private async syncWorktreeRepositories(
+    repository: Repository,
+    worktrees: ReadonlyArray<WorktreeEntry>
+  ): Promise<void> {
+    const main = worktrees.find(wt => wt.type === 'main')
+    if (
+      main === undefined ||
+      matchExistingRepository([repository], main.path) === undefined
+    ) {
+      return
+    }
+
+    for (const worktree of worktrees) {
+      if (worktree.type === 'linked' && !worktree.isPrunable) {
+        await this.findOrAddWorktreeRepository(worktree.path)
       }
     }
 
-    return result.repository
+    const children = this.repositories.filter(
+      r =>
+        r.id !== repository.id &&
+        r.mainWorktreePath !== undefined &&
+        matchExistingRepository([repository], r.mainWorktreePath) !== undefined
+    )
+
+    for (const child of children) {
+      const worktree = matchExistingRepository(worktrees, child.path)
+      const isGone = worktree === undefined || worktree.isPrunable
+
+      if (isGone && !(await pathExists(child.path))) {
+        await this.repositoriesStore.removeRepository(child)
+      }
+    }
   }
 
   /** This shouldn't be called directly. See `Dispatcher`. */
@@ -4053,21 +4095,6 @@ export class AppStore extends TypedBaseStore<IAppState> {
     // set the flag and don't try anything Git-related
     const exists = await pathExists(repository.path)
     if (!exists) {
-      const recoveredWorktree = await this.recoverMissingWorktree(repository)
-
-      if (recoveredWorktree !== null) {
-        if (
-          this.selectedRepository instanceof Repository &&
-          this.selectedRepository.id === repository.id
-        ) {
-          await this._selectRepository(recoveredWorktree)
-        } else {
-          await this._refreshRepository(recoveredWorktree)
-        }
-
-        return
-      }
-
       this._updateRepositoryMissing(repository, true)
       return
     }
@@ -4080,6 +4107,19 @@ export class AppStore extends TypedBaseStore<IAppState> {
           repository,
           type.gitDir
         )
+      }
+    }
+
+    // Record which main worktree the repository belongs to, so a linked
+    // worktree added before that was recorded is listed under its parent.
+    if (repository.mainWorktreePath === undefined) {
+      const mainWorktreePath = await this.findMainWorktreePath(repository.path)
+      if (mainWorktreePath !== undefined) {
+        repository =
+          await this.repositoriesStore.updateRepositoryMainWorktreePath(
+            repository,
+            mainWorktreePath
+          )
       }
     }
 
@@ -4389,6 +4429,8 @@ export class AppStore extends TypedBaseStore<IAppState> {
       this.repositoryStateCache.update(repository, () => ({ worktrees }))
       this.statsStore.recordWorktreeCount(worktrees.length)
 
+      await this.syncWorktreeRepositories(repository, worktrees)
+
       // The presence of linked worktrees determines whether the worktree
       // dropdown is shown, which changes how the toolbar width is allocated.
       this.updateResizableConstraints()
@@ -4598,12 +4640,19 @@ export class AppStore extends TypedBaseStore<IAppState> {
       return repository
     }
 
-    // If the branch is checked out in another worktree, switch to that worktree
-    // instead of checking out the branch in the current worktree.
+    // Git won't check out a branch that another worktree already has checked
+    // out. Say where it is instead of moving to that worktree: picking a branch
+    // never changes the selected repository.
     const wt = repositoryState.worktrees.find(wt => wt.branch === branch.ref)
 
     if (wt) {
-      return this._switchWorktree(repository, wt)
+      this.emitError(
+        new Error(
+          `The branch '${branch.name}' is already checked out in the worktree at '${wt.path}'. ` +
+            `Open that worktree from the repository list, or remove it, to check out this branch here.`
+        )
+      )
+      return repository
     }
 
     let strategy = explicitStrategy ?? this.uncommittedChangesStrategy
@@ -6204,62 +6253,33 @@ export class AppStore extends TypedBaseStore<IAppState> {
   }
 
   /**
-   * Switch the repository to a different worktree. This shouldn't be called
-   * directly. See `Dispatcher`.
-   *
-   * If the target worktree path is already registered as a separate repository,
-   * that repository is selected instead of modifying the current one.
+   * Select the repository for a worktree, adding the worktree as a repository
+   * of its own when it isn't listed yet. The given repository is left as it
+   * is. This shouldn't be called directly. See `Dispatcher`.
    */
   public async _switchWorktree(
     repository: Repository,
     worktree: WorktreeEntry
   ): Promise<Repository> {
-    const type = await getRepositoryType(worktree.path).catch(e => {
-      log.error('Could not determine repository type', e)
-      return { kind: 'missing' } as RepositoryType
-    })
+    const target = await this.findOrAddWorktreeRepository(worktree.path)
 
-    if (type.kind !== 'regular' && type.kind !== 'unsafe') {
+    if (target === null) {
       throw new Error(
         `The worktree path '${worktree.path}' does not appear to be a valid Git repository.`
       )
     }
 
-    // If the repository path isn't trusted we'll mark the repository as
-    // missing. The missing repository view knows how to add a path to the
-    // allow list.
-    const missing = type.kind === 'unsafe'
-    const gitDir = type.kind === 'regular' ? type.gitDir : undefined
+    if (target.id === repository.id) {
+      return repository
+    }
 
-    // Record the main worktree while the worktree set is still readable.
-    // Removing a worktree can take its git metadata with it, leaving nothing to
-    // resolve it from afterwards. Only attempted for a regular repository —
-    // git won't run at all in one it considers unsafe — and `switchWorktree`
-    // keeps the previously recorded path when this is undefined.
-    const mainWorktreePath =
-      type.kind === 'regular'
-        ? await this.findMainWorktreePath(worktree.path)
-        : undefined
+    this.repositoryStateCache.seedFromWorktree(target, repository, worktree)
 
-    const result = await this.repositoriesStore.switchWorktree(
-      repository,
-      worktree.path,
-      missing,
-      gitDir,
-      mainWorktreePath
-    )
-
-    this.repositoryStateCache.seedFromWorktree(
-      result.repository,
-      repository,
-      worktree
-    )
-
-    await this._selectRepository(result.repository)
+    await this._selectRepository(target)
 
     this.statsStore.increment('worktreeSwitchCount')
 
-    return result.repository
+    return target
   }
 
   /** This shouldn't be called directly. See 'Dispatcher'. */
@@ -6286,24 +6306,30 @@ export class AppStore extends TypedBaseStore<IAppState> {
     worktreePath: string,
     force?: boolean
   ): Promise<void> {
-    const isDeletingCurrentWorktree = repository.path === worktreePath
+    const isDeletingCurrentWorktree =
+      matchExistingRepository([repository], worktreePath) !== undefined
     let originalWorktree: WorktreeEntry | null = null
 
     if (isDeletingCurrentWorktree) {
       const worktrees = await listWorktrees(repository)
       const main = worktrees.find(wt => wt.type === 'main')
       originalWorktree =
-        worktrees.find(wt => wt.path === repository.path) ?? null
+        matchExistingRepository(worktrees, repository.path) ?? null
 
       if (main === undefined) {
         throw new Error('Could not find main worktree')
       }
 
-      // Switch to the main worktree before deleting the current one since the
-      // current worktree path will be deleted after the switch. Use the
-      // resulting repository (with the updated path) for the subsequent
-      // remove and refresh calls.
-      repository = await this._switchWorktree(repository, main)
+      // Move to the main worktree's repository before deleting the current
+      // worktree, since git can't remove the worktree it's running in. Use
+      // that repository for the subsequent remove and refresh calls.
+      const mainRepository = await this._switchWorktree(repository, main)
+
+      if (mainRepository.id === repository.id) {
+        throw new Error('Could not open the main worktree')
+      }
+
+      repository = mainRepository
     }
 
     try {
@@ -6321,6 +6347,19 @@ export class AppStore extends TypedBaseStore<IAppState> {
       return
     }
 
+    // The deleted worktree's own repository, if it's listed, now points at a
+    // directory that is gone.
+    const deletedRepository = matchExistingRepository(
+      this.repositories,
+      worktreePath
+    )
+    if (
+      deletedRepository !== undefined &&
+      deletedRepository.id !== repository.id
+    ) {
+      await this.repositoriesStore.removeRepository(deletedRepository)
+    }
+
     await this._refreshWorktrees(repository)
     this.statsStore.increment('worktreeDeletedCount')
   }
@@ -6333,26 +6372,41 @@ export class AppStore extends TypedBaseStore<IAppState> {
   ): Promise<void> {
     await moveWorktree(repository, worktreePath, newPath)
 
-    // If the worktree being renamed is the currently selected one, switch to
-    // its new path so that the subsequent refresh (and any further git calls)
-    // operate on the renamed directory rather than the now non-existing one.
-    if (repository.path === worktreePath) {
-      const result = await this.repositoriesStore.switchWorktree(
-        repository,
-        newPath
-      )
+    // The renamed worktree's own repository, if it's listed, now points at a
+    // directory that is gone. List the new path in its place rather than
+    // rewriting that repository's path.
+    const movedRepository = matchExistingRepository(
+      this.repositories,
+      worktreePath
+    )
+    const renamedRepository =
+      movedRepository === undefined
+        ? null
+        : await this.findOrAddWorktreeRepository(newPath)
 
-      // Renaming changes the repository's path and therefore its hash, which
-      // is the key used by the state cache. Carry the existing state over to
-      // the new identity so we don't reset the UI (e.g. a typed commit
-      // message) just because the worktree was renamed.
-      this.repositoryStateCache.transferState(repository, result.repository)
-
-      await this._selectRepository(result.repository)
-      await this._refreshWorktrees(result.repository)
-    } else {
+    if (movedRepository === undefined || renamedRepository === null) {
       await this._refreshWorktrees(repository)
+      return
     }
+
+    // The new repository has a different hash, which is the key used by the
+    // state cache. Carry the existing state over so we don't reset the UI
+    // (e.g. a typed commit message) just because the worktree was renamed.
+    this.repositoryStateCache.transferState(movedRepository, renamedRepository)
+
+    const wasSelected =
+      this.selectedRepository instanceof Repository &&
+      this.selectedRepository.id === movedRepository.id
+
+    if (wasSelected) {
+      await this._selectRepository(renamedRepository)
+    }
+
+    await this.repositoriesStore.removeRepository(movedRepository)
+
+    await this._refreshWorktrees(
+      movedRepository.id === repository.id ? renamedRepository : repository
+    )
   }
 
   public _setWorktreeDropdownWidth(width: number): Promise<void> {

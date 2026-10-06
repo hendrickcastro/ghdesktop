@@ -1,3 +1,4 @@
+import * as Path from 'path'
 import {
   Repository,
   ILocalRepositoryState,
@@ -81,6 +82,11 @@ export interface IRepositoryListItem extends IFilterListItem {
   readonly changedFilesCount: number
   /** Whether this item is rendered inside the flat favorites group. */
   readonly isInFavoritesGroup: boolean
+  /**
+   * The repository of the main worktree when this item is one of its linked
+   * worktrees and is rendered underneath it, otherwise null.
+   */
+  readonly worktreeParent: Repository | null
 }
 
 const getHostForRepository = (repo: RepositoryWithGitHubRepository) =>
@@ -96,6 +102,46 @@ const getGroupForRepository = (repo: Repositoryish): RepositoryListGroup => {
 }
 
 type RepoGroupItem = { group: RepositoryListGroup; repos: Repositoryish[] }
+
+// Windows is guaranteed to be case-insensitive so we can be a bit less strict
+const normalizePath = (path: string) =>
+  __WIN32__ ? Path.normalize(path).toLowerCase() : Path.normalize(path)
+
+const isMainWorktree = (repo: Repository) =>
+  repo.mainWorktreePath === undefined ||
+  normalizePath(repo.mainWorktreePath) === normalizePath(repo.path)
+
+/**
+ * Map each linked worktree to its parent: the listed repository of its main
+ * worktree. A worktree whose main worktree isn't listed has no parent and is
+ * listed like any other repository.
+ */
+function findWorktreeParents(
+  repositories: ReadonlyArray<Repositoryish>
+): ReadonlyMap<number, Repository> {
+  const mainWorktrees = new Map<string, Repository>()
+  for (const repo of repositories) {
+    if (repo instanceof Repository && isMainWorktree(repo)) {
+      mainWorktrees.set(normalizePath(repo.path), repo)
+    }
+  }
+
+  const parents = new Map<number, Repository>()
+  for (const repo of repositories) {
+    if (
+      repo instanceof Repository &&
+      repo.mainWorktreePath !== undefined &&
+      !isMainWorktree(repo)
+    ) {
+      const parent = mainWorktrees.get(normalizePath(repo.mainWorktreePath))
+      if (parent !== undefined) {
+        parents.set(repo.id, parent)
+      }
+    }
+  }
+
+  return parents
+}
 
 /** Build the full display path for a folder, e.g. "Work / Frontend" */
 function buildFolderPath(
@@ -136,6 +182,16 @@ export function groupRepositories(
     folderMap.set(folder.id, folder)
   }
   const groups = new Map<string, RepoGroupItem>()
+  const worktreeParents = findWorktreeParents(repositories)
+  const worktreesByParent = new Map<number, Repository[]>()
+  for (const repo of repositories) {
+    const parent = worktreeParents.get(repo.id)
+    if (parent !== undefined && repo instanceof Repository) {
+      const worktrees = worktreesByParent.get(parent.id) ?? []
+      worktrees.push(repo)
+      worktreesByParent.set(parent.id, worktrees)
+    }
+  }
 
   const addToGroup = (group: RepositoryListGroup, repo: Repositoryish) => {
     const key = getGroupKey(group)
@@ -152,6 +208,12 @@ export function groupRepositories(
     // Favorites: add to favorites group AND their normal group
     if (repo instanceof Repository && repo.isFavorite) {
       addToGroup({ kind: 'favorites' }, repo)
+    }
+
+    // Linked worktrees are listed underneath their parent repository, in
+    // whichever group the parent is in.
+    if (worktreeParents.has(repo.id)) {
+      continue
     }
 
     // Folder: repos in a folder go ONLY into the folder group, not their normal group
@@ -231,7 +293,9 @@ export function groupRepositories(
         group,
         repos,
         localRepositoryStateLookup,
-        groups
+        groups,
+        worktreeParents,
+        worktreesByParent
       ),
     }))
 }
@@ -241,11 +305,20 @@ export function groupRepositories(
 const getDisplayTitle = (r: Repositoryish) =>
   r instanceof Repository && r.alias != null ? r.alias : r.name
 
+/**
+ * Returns the display title for a linked worktree listed under its parent:
+ * the alias (if available) or the name of the worktree's directory.
+ */
+export const getWorktreeDisplayTitle = (r: Repository) =>
+  r.alias ?? Path.basename(r.path)
+
 const toSortedListItems = (
   group: RepositoryListGroup,
   repositories: ReadonlyArray<Repositoryish>,
   localRepositoryStateLookup: ReadonlyMap<number, ILocalRepositoryState>,
-  groups: Map<string, RepoGroupItem>
+  groups: Map<string, RepoGroupItem>,
+  worktreeParents: ReadonlyMap<number, Repository>,
+  worktreesByParent: ReadonlyMap<number, ReadonlyArray<Repository>>
 ): IRepositoryListItem[] => {
   const groupNames = new Map<string, number>()
   const allNames = new Map<string, number>()
@@ -268,25 +341,61 @@ const toSortedListItems = (
     }
   }
 
+  const toListItem = (
+    r: Repositoryish,
+    title: string,
+    needsDisambiguation: boolean,
+    worktreeParent: Repository | null
+  ): IRepositoryListItem => {
+    const repoState = localRepositoryStateLookup.get(r.id)
+
+    return {
+      text: r instanceof Repository ? [title, nameOf(r)] : [title],
+      id: r.id.toString(),
+      repository: r,
+      needsDisambiguation,
+      aheadBehind: repoState?.aheadBehind ?? null,
+      changedFilesCount: repoState?.changedFilesCount ?? 0,
+      isInFavoritesGroup: group.kind === 'favorites',
+      worktreeParent,
+    }
+  }
+
+  // The favorites group is flat, so a favorite worktree is listed there on its
+  // own rather than underneath its parent.
+  const worktreesOf = (parent: Repositoryish): ReadonlyArray<Repository> =>
+    group.kind === 'favorites' || !(parent instanceof Repository)
+      ? []
+      : worktreesByParent.get(parent.id) ?? []
+
   return repositories
     .map(r => {
-      const repoState = localRepositoryStateLookup.get(r.id)
-      const title = getDisplayTitle(r)
+      const title =
+        r instanceof Repository && worktreeParents.has(r.id)
+          ? getWorktreeDisplayTitle(r)
+          : getDisplayTitle(r)
 
-      return {
-        text: r instanceof Repository ? [title, nameOf(r)] : [title],
-        id: r.id.toString(),
-        repository: r,
-        needsDisambiguation:
-          ((groupNames.get(title) ?? 0) > 1 && group.kind === 'enterprise') ||
+      return toListItem(
+        r,
+        title,
+        ((groupNames.get(title) ?? 0) > 1 && group.kind === 'enterprise') ||
           ((allNames.get(title) ?? 0) > 1 &&
             (group.kind === 'favorites' || group.kind === 'folder')),
-        aheadBehind: repoState?.aheadBehind ?? null,
-        changedFilesCount: repoState?.changedFilesCount ?? 0,
-        isInFavoritesGroup: group.kind === 'favorites',
-      }
+        null
+      )
     })
-    .sort(({ repository: x }, { repository: y }) =>
-      caseInsensitiveCompare(getDisplayTitle(x), getDisplayTitle(y))
-    )
+    .sort(({ text: [x] }, { text: [y] }) => caseInsensitiveCompare(x, y))
+    .flatMap(item => [
+      item,
+      ...worktreesOf(item.repository)
+        .map(worktree =>
+          toListItem(
+            worktree,
+            getWorktreeDisplayTitle(worktree),
+            false,
+            item.repository instanceof Repository ? item.repository : null
+          )
+        )
+        .sort(({ text: [x] }, { text: [y] }) => caseInsensitiveCompare(x, y)),
+    ])
 }

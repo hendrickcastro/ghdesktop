@@ -33,6 +33,12 @@ interface IRepositoryListItemProps {
 
   /** Folder nesting depth for indentation (0 = no folder or root folder) */
   readonly folderDepth?: number
+
+  /**
+   * The title to show, when the repository is a linked worktree listed under
+   * its parent. Defaults to the alias or the name of the repository.
+   */
+  readonly worktreeTitle?: string
 }
 
 /** A repository item. */
@@ -56,8 +62,9 @@ export class RepositoryListItem extends React.Component<
       prefix = `${gitHubRepo.owner.login}/`
     }
 
+    const { worktreeTitle } = this.props
     const classNameList = classNames('name', {
-      alias: alias !== null,
+      alias: alias !== null && worktreeTitle === undefined,
     })
 
     const depth = this.props.folderDepth ?? 0
@@ -79,13 +86,17 @@ export class RepositoryListItem extends React.Component<
 
         <Octicon
           className="icon-for-repository"
-          symbol={iconForRepository(repository)}
+          symbol={
+            worktreeTitle !== undefined
+              ? octicons.fileDirectory
+              : iconForRepository(repository)
+          }
         />
 
         <div className={classNames(classNameList)}>
           {prefix ? <span className="prefix">{prefix}</span> : null}
           <HighlightText
-            text={alias ?? repository.name}
+            text={worktreeTitle ?? alias ?? repository.name}
             highlight={this.props.matches.title}
           />
         </div>
@@ -125,7 +136,9 @@ export class RepositoryListItem extends React.Component<
       return (
         nextProps.repository.id !== this.props.repository.id ||
         nextProps.matches !== this.props.matches ||
-        nextProps.isFavorite !== this.props.isFavorite
+        nextProps.isFavorite !== this.props.isFavorite ||
+        nextProps.worktreeTitle !== this.props.worktreeTitle ||
+        nextProps.folderDepth !== this.props.folderDepth
       )
     } else {
       return true

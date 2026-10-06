@@ -153,4 +153,47 @@ describe('repository list grouping', () => {
     assert.equal(grouped[2].items[1].text[0], 'enterprise-repo')
     assert(grouped[2].items[1].needsDisambiguation)
   })
+
+  describe('worktrees', () => {
+    const worktree = (path: string, id: number, mainWorktreePath: string) =>
+      new Repository(
+        path,
+        id,
+        null,
+        false,
+        null,
+        undefined,
+        false,
+        undefined,
+        mainWorktreePath
+      )
+
+    it('lists linked worktrees underneath their parent by directory name', () => {
+      const parent = worktree('/repos/project', 1, '/repos/project')
+      const other = worktree('/repos/zebra', 2, '/repos/zebra')
+      const wtB = worktree('/wt/project/fix-b', 3, '/repos/project')
+      const wtA = worktree('/wt/project/feature-a', 4, '/repos/project')
+
+      const grouped = groupRepositories([wtB, other, wtA, parent], cache, [])
+
+      assert.equal(grouped.length, 1)
+      assert.deepEqual(
+        grouped[0].items.map(i => i.text[0]),
+        ['project', 'feature-a', 'fix-b', 'zebra']
+      )
+      assert.deepEqual(
+        grouped[0].items.map(i => i.worktreeParent?.id ?? null),
+        [null, 1, 1, null]
+      )
+    })
+
+    it('lists a worktree on its own when its parent is not listed', () => {
+      const orphan = worktree('/wt/project/feature-a', 1, '/repos/project')
+
+      const grouped = groupRepositories([orphan], cache, [])
+
+      assert.equal(grouped[0].items.length, 1)
+      assert.equal(grouped[0].items[0].worktreeParent, null)
+    })
+  })
 })

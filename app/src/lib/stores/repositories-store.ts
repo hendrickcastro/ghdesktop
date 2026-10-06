@@ -359,11 +359,11 @@ export class RepositoriesStore extends TypedBaseStore<
   }
 
   /**
-   * Update the repository's path.
+   * Update the repository's path. Only for when the user locates a repository
+   * that has moved on disk.
    *
-   * Unlike `switchWorktree` this doesn't default `mainWorktreePath` to the
-   * recorded one. Moving a repository invalidates it, so callers say what it is
-   * now, or `undefined` when it can't be resolved.
+   * Moving a repository invalidates its recorded `mainWorktreePath`, so
+   * callers say what it is now, or `undefined` when it can't be resolved.
    */
   public async updateRepositoryPath(
     repository: Repository,
@@ -397,60 +397,31 @@ export class RepositoriesStore extends TypedBaseStore<
   }
 
   /**
-   * Switch the repository to a different worktree path, persisting the target
-   * git directory as a stable anchor for recovery.
-   *
-   * If another repository already exists at the target path, returns that
-   * repository instead of modifying the current one.
-   *
-   * @param repository  The repository to switch
-   * @param worktreePath The path of the worktree to switch to
-   * @param gitDir       The git directory for the target worktree
-   * @param mainWorktreePath The path of the repository's main worktree, which
-   *                         recovery relies on once the target worktree (and
-   *                         its git metadata) is gone
+   * Record the main worktree of the repository's git repository. A linked
+   * worktree is listed under the repository at that path. Doesn't touch the
+   * repository's own path.
    */
-  public async switchWorktree(
+  public async updateRepositoryMainWorktreePath(
     repository: Repository,
-    worktreePath: string,
-    missing = false,
-    gitDir: string | undefined = repository.gitDir,
-    mainWorktreePath: string | undefined = repository.mainWorktreePath
-  ): Promise<{ repository: Repository; existingRepository: boolean }> {
-    const existing = await this.db.repositories.get({ path: worktreePath })
-
-    if (existing !== undefined) {
-      return {
-        repository: await this.toRepository(existing),
-        existingRepository: true,
-      }
-    }
-
-    await this.db.repositories.update(repository.id, {
-      path: worktreePath,
-      missing,
-      gitDir,
-      mainWorktreePath,
-    })
+    mainWorktreePath: string
+  ): Promise<Repository> {
+    await this.db.repositories.update(repository.id, { mainWorktreePath })
 
     this.emitUpdatedRepositories()
 
-    return {
-      repository: new Repository(
-        worktreePath,
-        repository.id,
-        repository.gitHubRepository,
-        missing,
-        repository.alias,
-        repository.workflowPreferences,
-        repository.isTutorialRepository,
-        gitDir,
-        mainWorktreePath,
-        repository.isFavorite,
-        repository.folderId
-      ),
-      existingRepository: false,
-    }
+    return new Repository(
+      repository.path,
+      repository.id,
+      repository.gitHubRepository,
+      repository.missing,
+      repository.alias,
+      repository.workflowPreferences,
+      repository.isTutorialRepository,
+      repository.gitDir,
+      mainWorktreePath,
+      repository.isFavorite,
+      repository.folderId
+    )
   }
 
   /**

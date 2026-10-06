@@ -187,7 +187,15 @@ export class RepositoriesList extends React.Component<
   }
 
   private renderItem = (item: IRepositoryListItem, matches: IMatches) => {
-    const repository = item.repository
+    const { repository, worktreeParent } = item
+
+    // A linked worktree is indented one level below its parent repository.
+    const folderDepth = item.isInFavoritesGroup
+      ? 0
+      : worktreeParent !== null
+      ? this.getFolderDepth(worktreeParent) + 1
+      : this.getFolderDepth(repository)
+
     return (
       <RepositoryListItem
         key={repository.id}
@@ -199,9 +207,8 @@ export class RepositoriesList extends React.Component<
         isFavorite={
           repository instanceof Repository ? repository.isFavorite : false
         }
-        folderDepth={
-          item.isInFavoritesGroup ? 0 : this.getFolderDepth(repository)
-        }
+        folderDepth={folderDepth}
+        worktreeTitle={worktreeParent !== null ? item.text[0] : undefined}
       />
     )
   }

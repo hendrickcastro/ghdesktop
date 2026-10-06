@@ -103,6 +103,26 @@ Group repositories into named folders, nested as deep as you like
 The sidebar's *Recent* section is gone; favorites, folders and source groups
 (GitHub.com, Enterprise, other) organize the list instead.
 
+### Worktrees
+
+A repository's linked worktrees are listed underneath it in the sidebar,
+indented and named after their directory (or their alias, if you give them
+one). The repository you added is the parent of all of them and always keeps
+its own path:
+
+- Worktrees created outside the app (by `git worktree add` or another tool)
+  show up under their parent the next time it refreshes, and ones whose
+  directory is gone drop out of the list.
+- Picking a worktree - in the sidebar, the worktree dropdown, or right after
+  creating one - selects that worktree's own entry. Removing or renaming a
+  worktree updates its entry; the parent is never rewritten.
+- Choosing a branch never changes the selected repository. A branch that is
+  checked out in another worktree can't be checked out here too, so the app
+  says which worktree has it instead.
+- Worktrees share their parent's branches, so you can merge a worktree's branch
+  into the parent's current branch, or the other way round, with **Merge into
+  current branch**.
+
 ## Adding several local repositories at once
 
 In **File → Add Local Repository**, select several folders with Ctrl/Cmd-click

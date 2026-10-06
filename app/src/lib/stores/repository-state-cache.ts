@@ -288,11 +288,11 @@ export class RepositoryStateCache {
   /**
    * Move the entire cached state for a repository from one identity to another.
    *
-   * This is used when a worktree is renamed: the repository's path (and
-   * therefore its hash) changes, but it still refers to the same working
-   * directory, so all of the existing in-memory state (working directory
-   * changes, commit message, history, etc.) should be carried over to the new
-   * identity rather than reset to its initial values.
+   * This is used when a worktree is renamed: its repository is replaced by one
+   * at the new path (and therefore with a new hash), but it still refers to the
+   * same working directory, so all of the existing in-memory state (working
+   * directory changes, commit message, history, etc.) should be carried over
+   * to the new identity rather than reset to its initial values.
    */
   public transferState(source: Repository, target: Repository) {
     if (source.hash === target.hash) {
