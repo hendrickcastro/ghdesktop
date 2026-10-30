@@ -1,5 +1,25 @@
 @import '../mixins';
 
+// The resizable wrapper of the repository list foldout fills the foldout
+#repository-list-foldout {
+  height: 100%;
+}
+
+// Tree guide lines: one per ancestor level, under that ancestor's chevron.
+// Each level is a 20px tile with a 1px line at its chevron's center; the
+// row's inline background-size (getTreeIndentStyle) sets how many levels.
+.repository-list .repository-list-item,
+.repository-list .filter-list-group-header.collapsible {
+  background-image: repeating-linear-gradient(to right, transparent 0 9px, var(--tree-guide-color) 9px 10px, transparent 10px 20px);
+  background-position: var(--spacing) 0;
+  background-repeat: no-repeat;
+  background-size: 0 100%;
+}
+
+.repository-list {
+  --tree-guide-color: color-mix(in srgb, var(--text-secondary-color) 35%, transparent);
+}
+
 .repository-list {
   height: 100%;
   display: flex;
@@ -33,6 +53,45 @@
     // Necessary to limit the width of the repository
     // name and truncate accordingly
     width: 100%;
+
+    // Fill the row so the worktrees chevron can be as tall as it
+    height: 100%;
+
+    // A column every row reserves for the worktrees chevron, tree style
+    .worktrees-toggle,
+    .worktrees-toggle-spacer {
+      flex-shrink: 0;
+      align-self: stretch;
+      width: 18px;
+      margin-right: 2px;
+    }
+
+    .worktrees-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--border-radius);
+      cursor: pointer;
+
+      .octicon {
+        width: 12px;
+        height: 12px;
+        color: var(--text-secondary-color);
+        transition: transform 0.15s ease;
+      }
+
+      &.expanded .octicon {
+        transform: rotate(90deg);
+      }
+
+      &:hover {
+        background-color: var(--box-hover-background-color);
+
+        .octicon {
+          color: var(--text-color);
+        }
+      }
+    }
 
     .icon-for-repository {
       // Some room between the icon and repository name
@@ -241,7 +300,8 @@
 
 .filter-list-group-header {
   .group-header-icon {
-    margin-right: 4px;
+    // Same gap as a repository's icon, so names line up
+    margin-right: var(--spacing-half);
     vertical-align: text-bottom;
   }
 
@@ -259,19 +319,20 @@
     display: flex;
     align-items: center;
 
+    // The chevron is the svg itself. Its margins make it take the same 20px
+    // as a repository's worktrees column, so a folder's icon lines up with
+    // the icons of the repositories next to it.
     .collapse-chevron {
-      margin-right: 2px;
+      flex-shrink: 0;
+      width: 12px;
+      height: 12px;
+      margin: 0 5px 0 3px;
+      color: var(--text-secondary-color);
+      transform: rotate(90deg);
       transition: transform 0.15s ease;
-
-      .octicon {
-        width: 12px;
-        height: 12px;
-        color: var(--text-secondary-color);
-        transform: rotate(90deg);
-      }
     }
 
-    &.collapsed .collapse-chevron .octicon {
+    &.collapsed .collapse-chevron {
       transform: rotate(0deg);
     }
   }

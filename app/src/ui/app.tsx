@@ -45,6 +45,7 @@ import { CloningRepository } from '../models/cloning-repository'
 import { TitleBar, ZoomInfo, FullScreenInfo } from './window'
 
 import { RepositoriesList } from './repositories-list'
+import { Resizable } from './resizable'
 import { getRepositoryTitle } from './repositories-list/group-repositories'
 import { RepositoryView } from './repository'
 import { RenameBranch } from './rename-branch'
@@ -3420,32 +3421,51 @@ export class App extends React.Component<IAppProps, IAppState> {
       ? this.state.selectedState.repository
       : null
 
-    const { useCustomShell, selectedShell } = this.state
+    const { useCustomShell, selectedShell, sidebarWidth } = this.state
     const filterText = this.state.repositoryFilterText
     const repositories = this.state.repositories
+
+    // The foldout covers the sidebar and its resize handle, so it carries a
+    // handle of its own that resizes both.
     return (
-      <RepositoriesList
-        filterText={filterText}
-        onFilterTextChanged={this.onRepositoryFilterTextChanged}
-        selectedRepository={selectedRepository}
-        onSelectionChanged={this.onSelectionChanged}
-        repositories={repositories}
-        repositoryFolders={this.state.repositoryFolders}
-        localRepositoryStateLookup={this.state.localRepositoryStateLookup}
-        askForConfirmationOnRemoveRepository={
-          this.state.askForConfirmationOnRepositoryRemoval
-        }
-        onRemoveRepository={this.removeRepository}
-        onViewOnGitHub={this.viewOnGitHub}
-        onOpenInShell={this.openInShell}
-        onShowRepository={this.showRepository}
-        onOpenInExternalEditor={this.openInExternalEditor}
-        externalEditorLabel={this.externalEditorLabel}
-        shellLabel={useCustomShell ? undefined : selectedShell}
-        dispatcher={this.props.dispatcher}
-      />
+      <Resizable
+        id="repository-list-foldout"
+        width={sidebarWidth.value}
+        maximumWidth={sidebarWidth.max}
+        minimumWidth={sidebarWidth.min}
+        onReset={this.onRepositoryListWidthReset}
+        onResize={this.onRepositoryListResize}
+        description="Repository list"
+      >
+        <RepositoriesList
+          filterText={filterText}
+          onFilterTextChanged={this.onRepositoryFilterTextChanged}
+          selectedRepository={selectedRepository}
+          onSelectionChanged={this.onSelectionChanged}
+          repositories={repositories}
+          repositoryFolders={this.state.repositoryFolders}
+          localRepositoryStateLookup={this.state.localRepositoryStateLookup}
+          askForConfirmationOnRemoveRepository={
+            this.state.askForConfirmationOnRepositoryRemoval
+          }
+          onRemoveRepository={this.removeRepository}
+          onViewOnGitHub={this.viewOnGitHub}
+          onOpenInShell={this.openInShell}
+          onShowRepository={this.showRepository}
+          onOpenInExternalEditor={this.openInExternalEditor}
+          externalEditorLabel={this.externalEditorLabel}
+          shellLabel={useCustomShell ? undefined : selectedShell}
+          dispatcher={this.props.dispatcher}
+        />
+      </Resizable>
     )
   }
+
+  private onRepositoryListWidthReset = () =>
+    this.props.dispatcher.resetSidebarWidth()
+
+  private onRepositoryListResize = (width: number) =>
+    this.props.dispatcher.setSidebarWidth(width)
 
   private viewOnGitHub = (
     repository: Repository | CloningRepository | null

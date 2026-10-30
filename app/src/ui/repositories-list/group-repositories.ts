@@ -87,6 +87,8 @@ export interface IRepositoryListItem extends IFilterListItem {
    * worktrees and is rendered underneath it, otherwise null.
    */
   readonly worktreeParent: Repository | null
+  /** How many linked worktrees are listed underneath this item. */
+  readonly worktreeCount: number
 }
 
 const getHostForRepository = (repo: RepositoryWithGitHubRepository) =>
@@ -340,6 +342,36 @@ export function getRepositoryTitle(
   return `${parentTitle} : ${getWorktreeDisplayTitle(repository)}`
 }
 
+/**
+ * Returns one repository per working copy family: the main worktree, leaving
+ * out its linked worktrees. Worktrees share their main worktree's objects and
+ * remotes, so listing each of them would repeat the same repository and pull
+ * it several times. When the main worktree isn't listed, the first of its
+ * worktrees stands in for it.
+ */
+export function getMainWorktrees(
+  repositories: ReadonlyArray<Repositoryish>
+): ReadonlyArray<Repository> {
+  const byMainWorktree = new Map<string, Repository>()
+
+  for (const repo of repositories) {
+    if (!(repo instanceof Repository)) {
+      continue
+    }
+
+    const key = normalizePath(repo.mainWorktreePath ?? repo.path)
+    const current = byMainWorktree.get(key)
+    if (
+      current === undefined ||
+      (isMainWorktree(repo) && !isMainWorktree(current))
+    ) {
+      byMainWorktree.set(key, repo)
+    }
+  }
+
+  return [...byMainWorktree.values()]
+}
+
 const toSortedListItems = (
   group: RepositoryListGroup,
   repositories: ReadonlyArray<Repositoryish>,
@@ -369,6 +401,13 @@ const toSortedListItems = (
     }
   }
 
+  // The favorites group is flat, so a favorite worktree is listed there on its
+  // own rather than underneath its parent.
+  const worktreesOf = (parent: Repositoryish): ReadonlyArray<Repository> =>
+    group.kind === 'favorites' || !(parent instanceof Repository)
+      ? []
+      : worktreesByParent.get(parent.id) ?? []
+
   const toListItem = (
     r: Repositoryish,
     title: string,
@@ -386,15 +425,9 @@ const toSortedListItems = (
       changedFilesCount: repoState?.changedFilesCount ?? 0,
       isInFavoritesGroup: group.kind === 'favorites',
       worktreeParent,
+      worktreeCount: worktreeParent === null ? worktreesOf(r).length : 0,
     }
   }
-
-  // The favorites group is flat, so a favorite worktree is listed there on its
-  // own rather than underneath its parent.
-  const worktreesOf = (parent: Repositoryish): ReadonlyArray<Repository> =>
-    group.kind === 'favorites' || !(parent instanceof Repository)
-      ? []
-      : worktreesByParent.get(parent.id) ?? []
 
   return repositories
     .map(r => {

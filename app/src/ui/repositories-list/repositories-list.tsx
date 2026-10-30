@@ -86,6 +86,11 @@ interface IRepositoriesListState {
   readonly newRepositoryMenuExpanded: boolean
   readonly selectedItem: IRepositoryListItem | null
   readonly collapsedGroups: ReadonlySet<string>
+  /**
+   * The repositories whose linked worktrees are shown. Not remembered, so the
+   * list always opens with worktrees collapsed.
+   */
+  readonly expandedWorktreeParents: ReadonlySet<number>
 }
 
 const RowHeight = 29
@@ -150,6 +155,33 @@ export class RepositoriesList extends React.Component<
    */
   private getSelectedListItem = memoizeOne(findMatchingListItem)
 
+  /**
+   * Leaves out the linked worktrees of every repository that isn't expanded,
+   * except the selected one so the selection stays visible. While filtering
+   * every worktree is kept, so a search finds them.
+   */
+  private getVisibleGroups = memoizeOne(
+    (
+      groups: ReadonlyArray<
+        IFilterListGroup<IRepositoryListItem, RepositoryListGroup>
+      >,
+      expandedWorktreeParents: ReadonlySet<number>,
+      selectedRepositoryId: number | null,
+      filtering: boolean
+    ) =>
+      filtering
+        ? groups
+        : groups.map(group => ({
+            ...group,
+            items: group.items.filter(
+              ({ repository, worktreeParent }) =>
+                worktreeParent === null ||
+                expandedWorktreeParents.has(worktreeParent.id) ||
+                repository.id === selectedRepositoryId
+            ),
+          }))
+  )
+
   public constructor(props: IRepositoriesListProps) {
     super(props)
 
@@ -157,6 +189,7 @@ export class RepositoriesList extends React.Component<
       newRepositoryMenuExpanded: false,
       selectedItem: null,
       collapsedGroups: new Set<string>(getStringArray(collapsedGroupsKey)),
+      expandedWorktreeParents: new Set<number>(),
     }
   }
 
@@ -187,11 +220,12 @@ export class RepositoriesList extends React.Component<
   }
 
   private renderItem = (item: IRepositoryListItem, matches: IMatches) => {
-    const { repository, worktreeParent } = item
+    const { repository, worktreeParent, worktreeCount } = item
 
-    // A linked worktree is indented one level below its parent repository.
+    // Favorites sit one level below their header, like repositories in a
+    // folder; a linked worktree is one level below its parent repository.
     const folderDepth = item.isInFavoritesGroup
-      ? 0
+      ? 1
       : worktreeParent !== null
       ? this.getFolderDepth(worktreeParent) + 1
       : this.getFolderDepth(repository)
@@ -209,8 +243,21 @@ export class RepositoriesList extends React.Component<
         }
         folderDepth={folderDepth}
         worktreeTitle={worktreeParent !== null ? item.text[0] : undefined}
+        worktreeCount={worktreeCount}
+        worktreesExpanded={this.state.expandedWorktreeParents.has(
+          repository.id
+        )}
+        onToggleWorktrees={this.onToggleWorktrees}
       />
     )
+  }
+
+  private onToggleWorktrees = (repository: Repositoryish) => {
+    const expandedWorktreeParents = new Set(this.state.expandedWorktreeParents)
+    if (!expandedWorktreeParents.delete(repository.id)) {
+      expandedWorktreeParents.add(repository.id)
+    }
+    this.setState({ expandedWorktreeParents })
   }
 
   private getAheadBehindTooltip = (aheadBehind: IAheadBehind | null) => {
@@ -613,10 +660,15 @@ export class RepositoriesList extends React.Component<
       this.getGroupLabel(groups[group].identifier)
 
   public render() {
-    const groups = this.getRepositoryGroups(
-      this.props.repositories,
-      this.props.localRepositoryStateLookup,
-      this.props.repositoryFolders
+    const groups = this.getVisibleGroups(
+      this.getRepositoryGroups(
+        this.props.repositories,
+        this.props.localRepositoryStateLookup,
+        this.props.repositoryFolders
+      ),
+      this.state.expandedWorktreeParents,
+      this.props.selectedRepository?.id ?? null,
+      this.props.filterText.trim() !== ''
     )
 
     // So there's two types of selection at play here. There's the repository
@@ -648,6 +700,7 @@ export class RepositoriesList extends React.Component<
             repositories: this.props.repositories,
             filterText: this.props.filterText,
             collapsedGroups: this.state.collapsedGroups,
+            expandedWorktreeParents: this.state.expandedWorktreeParents,
           }}
           onItemContextMenu={this.onItemContextMenu}
           getGroupAriaLabel={this.getGroupAriaLabelGetter(groups)}

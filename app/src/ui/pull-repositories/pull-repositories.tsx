@@ -16,6 +16,10 @@ import { Octicon, syncClockwise } from '../octicons'
 import * as octicons from '../octicons/octicons.generated'
 import { getNumberArray, setNumberArray } from '../../lib/local-storage'
 import { TooltippedContent } from '../lib/tooltipped-content'
+import {
+  getMainWorktrees,
+  getRepositoryTitle,
+} from '../repositories-list/group-repositories'
 
 interface IPullRepositoriesProps {
   readonly dispatcher: Dispatcher
@@ -90,14 +94,19 @@ export class PullRepositories extends React.Component<
     this.unmounted = true
   }
 
-  /** Every pullable repository, sorted by folder then name. */
+  /**
+   * Every pullable repository, once each: linked worktrees are left out in
+   * favor of their main worktree. Sorted by folder then name.
+   */
   private getRows(): ReadonlyArray<IRow> {
     const folderPath = this.getFolderPathResolver()
+    const { repositories } = this.props
 
-    return this.props.repositories
-      .filter((r): r is Repository => r instanceof Repository)
+    return getMainWorktrees(repositories)
       .map(repository => {
-        const name = repository.alias ?? repository.name
+        // A worktree standing in for an unlisted main worktree reads
+        // `parent : worktree`, so it's clear which repository it is.
+        const name = getRepositoryTitle(repository, repositories)
         const folder = folderPath(repository.folderId)
         const owner = repository.gitHubRepository?.owner.login ?? ''
         const detail = folder !== '' ? folder : owner

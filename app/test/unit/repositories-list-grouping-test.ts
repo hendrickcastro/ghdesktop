@@ -3,6 +3,7 @@ import assert from 'node:assert'
 import {
   groupRepositories,
   getRepositoryTitle,
+  getMainWorktrees,
 } from '../../src/ui/repositories-list/group-repositories'
 import { Repository, ILocalRepositoryState } from '../../src/models/repository'
 import { CloningRepository } from '../../src/models/cloning-repository'
@@ -188,6 +189,10 @@ describe('repository list grouping', () => {
         grouped[0].items.map(i => i.worktreeParent?.id ?? null),
         [null, 1, 1, null]
       )
+      assert.deepEqual(
+        grouped[0].items.map(i => i.worktreeCount),
+        [2, 0, 0, 0]
+      )
     })
 
     it('titles a worktree as parent : worktree', () => {
@@ -199,6 +204,29 @@ describe('repository list grouping', () => {
       // Falls back to the main worktree's directory name when the parent
       // isn't listed.
       assert.equal(getRepositoryTitle(wt, [wt]), 'project : fix-b')
+    })
+
+    it('keeps only the main worktree of each repository', () => {
+      const parent = worktree('/repos/project', 1, '/repos/project')
+      const wtA = worktree('/wt/project/feature-a', 2, '/repos/project')
+      const other = worktree('/repos/other', 3, '/repos/other')
+      const wtB = worktree('/wt/other/feature-a', 4, '/repos/other')
+      const legacy = new Repository('/repos/legacy', 5, null, false)
+
+      assert.deepEqual(
+        getMainWorktrees([wtA, parent, wtB, other, legacy]).map(r => r.id),
+        [1, 3, 5]
+      )
+    })
+
+    it('keeps one worktree when the main worktree is not listed', () => {
+      const wtA = worktree('/wt/project/feature-a', 1, '/repos/project')
+      const wtB = worktree('/wt/project/fix-b', 2, '/repos/project')
+
+      assert.deepEqual(
+        getMainWorktrees([wtA, wtB]).map(r => r.id),
+        [1]
+      )
     })
 
     it('lists a worktree on its own when its parent is not listed', () => {

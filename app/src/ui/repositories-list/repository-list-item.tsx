@@ -39,6 +39,40 @@ interface IRepositoryListItemProps {
    * its parent. Defaults to the alias or the name of the repository.
    */
   readonly worktreeTitle?: string
+
+  /** How many linked worktrees are listed underneath this repository. */
+  readonly worktreeCount?: number
+
+  /** Whether the linked worktrees underneath this repository are shown. */
+  readonly worktreesExpanded?: boolean
+
+  /** Called to show or hide the linked worktrees underneath this repository. */
+  readonly onToggleWorktrees?: (repository: Repositoryish) => void
+}
+
+/**
+ * How far each level of the repository tree is indented: the width of the
+ * chevron column, so a child's chevron sits under its parent's icon.
+ */
+const TreeIndentWidth = 20
+
+/**
+ * The indentation of a repository list row (a folder header or a repository)
+ * at the given depth, plus one guide line per ancestor level, drawn by the
+ * row's background under each ancestor's chevron.
+ */
+export function getTreeIndentStyle(
+  depth: number
+): React.CSSProperties | undefined {
+  if (depth <= 0) {
+    return undefined
+  }
+
+  const indent = depth * TreeIndentWidth
+  return {
+    paddingLeft: `calc(var(--spacing) + ${indent}px)`,
+    backgroundSize: `${indent}px 100%`,
+  }
 }
 
 /** A repository item. */
@@ -47,6 +81,7 @@ export class RepositoryListItem extends React.Component<
   {}
 > {
   private readonly listItemRef = createObservableRef<HTMLDivElement>()
+  private readonly worktreesToggleRef = createObservableRef<HTMLSpanElement>()
 
   public render() {
     const repository = this.props.repository
@@ -68,8 +103,7 @@ export class RepositoryListItem extends React.Component<
     })
 
     const depth = this.props.folderDepth ?? 0
-    const depthStyle =
-      depth > 0 ? { paddingLeft: `${depth * 16 + 8}px` } : undefined
+    const depthStyle = getTreeIndentStyle(depth)
 
     return (
       <div
@@ -83,6 +117,8 @@ export class RepositoryListItem extends React.Component<
         >
           {this.renderTooltip()}
         </Tooltip>
+
+        {this.renderWorktreesToggle()}
 
         <Octicon
           className="icon-for-repository"
@@ -109,6 +145,64 @@ export class RepositoryListItem extends React.Component<
           })}
       </div>
     )
+  }
+
+  /**
+   * The chevron that shows or hides this repository's worktrees. Every row
+   * reserves its column, like a tree, so names stay aligned and the chevron
+   * is big enough to hit without selecting the row by mistake.
+   */
+  private renderWorktreesToggle() {
+    const { worktreeCount = 0, worktreesExpanded = false } = this.props
+    if (worktreeCount === 0) {
+      return <span className="worktrees-toggle-spacer" />
+    }
+
+    const label = `${worktreesExpanded ? 'Hide' : 'Show'} ${worktreeCount} ${
+      worktreeCount === 1 ? 'worktree' : 'worktrees'
+    }`
+
+    return (
+      <span
+        className={classNames('worktrees-toggle', {
+          expanded: worktreesExpanded,
+        })}
+        ref={this.worktreesToggleRef}
+        role="button"
+        tabIndex={-1}
+        aria-label={label}
+        aria-expanded={worktreesExpanded}
+        onMouseDown={this.onWorktreesToggleMouseDown}
+        onMouseUp={this.stopPropagation}
+        onClick={this.onWorktreesToggleClick}
+        onKeyDown={this.onWorktreesToggleKeyDown}
+      >
+        <Tooltip target={this.worktreesToggleRef}>{label}</Tooltip>
+        <Octicon symbol={octicons.chevronRight} />
+      </span>
+    )
+  }
+
+  // Selection happens on mouse down and up, so the toggle swallows both and
+  // only expands or collapses the worktrees.
+  private onWorktreesToggleMouseDown = (event: React.MouseEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
+  private stopPropagation = (event: React.MouseEvent) => event.stopPropagation()
+
+  private onWorktreesToggleClick = (event: React.MouseEvent) => {
+    event.stopPropagation()
+    this.props.onToggleWorktrees?.(this.props.repository)
+  }
+
+  private onWorktreesToggleKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      event.stopPropagation()
+      this.props.onToggleWorktrees?.(this.props.repository)
+    }
   }
 
   private renderTooltip() {
@@ -138,6 +232,8 @@ export class RepositoryListItem extends React.Component<
         nextProps.matches !== this.props.matches ||
         nextProps.isFavorite !== this.props.isFavorite ||
         nextProps.worktreeTitle !== this.props.worktreeTitle ||
+        nextProps.worktreeCount !== this.props.worktreeCount ||
+        nextProps.worktreesExpanded !== this.props.worktreesExpanded ||
         nextProps.folderDepth !== this.props.folderDepth
       )
     } else {

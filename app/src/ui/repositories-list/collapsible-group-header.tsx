@@ -4,6 +4,7 @@ import classNames from 'classnames'
 import { Octicon } from '../octicons'
 import * as octicons from '../octicons/octicons.generated'
 import { RepositoryListGroup } from './group-repositories'
+import { getTreeIndentStyle } from './repository-list-item'
 
 interface ICollapsibleGroupHeaderProps {
   readonly group: RepositoryListGroup
@@ -40,7 +41,9 @@ export class CollapsibleGroupHeader extends React.Component<ICollapsibleGroupHea
 
   public render() {
     const { collapsed, depth, icon, label } = this.props
-    const style = depth > 0 ? { paddingLeft: `${depth * 16}px` } : undefined
+    // Indented like repository rows, so a subfolder and the repositories
+    // beside it share a column.
+    const style = getTreeIndentStyle(depth)
 
     return (
       <div
