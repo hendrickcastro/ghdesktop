@@ -1,5 +1,12 @@
 {
   "releases": {
+    "3.7.4": [
+      "[Improved] Pull multiple repositories lists each repository once instead of once per worktree, and pulls only its main worktree",
+      "[Added] A repository's worktrees start collapsed underneath it in the repository list and open with a chevron",
+      "[Added] The repository list can be resized by dragging its edge, which resizes the sidebar with it",
+      "[Fixed] A folder's chevron shows whether it is expanded, and folders, subfolders and repositories line up as a tree with guide lines, so a folder's own repositories no longer look like part of its last subfolder",
+      "[Improved] Favorites are indented under their header like repositories in a folder"
+    ],
     "3.7.3": [
       "[Added] A branch that another worktree has checked out can be checked out anyway, after a warning naming that worktree"
     ],
