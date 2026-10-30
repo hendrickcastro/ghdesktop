@@ -1,5 +1,11 @@
 {
   "releases": {
+    "3.8.0": [
+      "[Improved] Brought in GitHub Desktop 3.6.8 through 3.6.10: short-lived sign-in tokens, Svelte syntax highlighting, Git 2.56 with Git LFS 3.8.1 and Git Credential Manager 2.9.1, Electron 44.9.1, and the upstream fixes since October",
+      "[Fixed] A worktree whose folder is gone is marked as missing, and checking out its branch offers to remove it first instead of failing with a Git error",
+      "[Fixed] Renaming a worktree no longer fails with a permission error on Windows",
+      "[Removed] macOS 12 is no longer supported"
+    ],
     "3.7.4": [
       "[Improved] Pull multiple repositories lists each repository once instead of once per worktree, and pulls only its main worktree",
       "[Added] A repository's worktrees start collapsed underneath it in the repository list and open with a chevron",
