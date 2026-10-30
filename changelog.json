@@ -1,5 +1,8 @@
 {
   "releases": {
+    "3.8.1": [
+      "[Added] Several repositories can be picked in the repository list with Ctrl/Cmd-click or Shift-click and moved to a folder together, including into a new folder"
+    ],
     "3.8.0": [
       "[Improved] Brought in GitHub Desktop 3.6.8 through 3.6.10: short-lived sign-in tokens, Svelte syntax highlighting, Git 2.56 with Git LFS 3.8.1 and Git Credential Manager 2.9.1, Electron 44.9.1, and the upstream fixes since October",
       "[Fixed] A worktree whose folder is gone is marked as missing, and checking out its branch offers to remove it first instead of failing with a Git error",
