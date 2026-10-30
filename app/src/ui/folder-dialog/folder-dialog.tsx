@@ -4,6 +4,7 @@ import { Dispatcher } from '../dispatcher'
 import { Dialog, DialogContent, DialogFooter } from '../dialog'
 import { OkCancelButtonGroup } from '../dialog/ok-cancel-button-group'
 import { TextBox } from '../lib/text-box'
+import { Repository } from '../../models/repository'
 
 interface IFolderDialogProps {
   readonly dispatcher: Dispatcher
@@ -15,6 +16,8 @@ interface IFolderDialogProps {
   readonly currentName?: string
   /** Parent folder ID for creating a subfolder. */
   readonly parentId?: number | null
+  /** Repositories to move into the folder once it's created. */
+  readonly repositoriesToMove?: ReadonlyArray<Repository>
 }
 
 interface IFolderDialogState {
@@ -48,7 +51,7 @@ export class FolderDialog extends React.Component<
           <p id="folder-dialog-description">
             {isRename
               ? 'Enter a new name for the folder.'
-              : `Enter a name for the new ${noun.toLowerCase()}.`}
+              : `Enter a name for the new ${noun.toLowerCase()}.${this.renderMoveNote()}`}
           </p>
           <p>
             <TextBox
@@ -72,6 +75,16 @@ export class FolderDialog extends React.Component<
     )
   }
 
+  /** Says which repositories will be moved into the new folder, if any. */
+  private renderMoveNote() {
+    const count = this.props.repositoriesToMove?.length ?? 0
+    return count === 0
+      ? ''
+      : ` The ${count} selected ${
+          count === 1 ? 'repository' : 'repositories'
+        } will be moved into it.`
+  }
+
   private onNameChanged = (folderName: string) => {
     this.setState({ folderName })
   }
@@ -85,7 +98,15 @@ export class FolderDialog extends React.Component<
     if (this.props.folderId !== undefined) {
       this.props.dispatcher.renameFolder(this.props.folderId, name)
     } else {
-      this.props.dispatcher.createFolder(name, this.props.parentId ?? null)
+      const { dispatcher, parentId, repositoriesToMove } = this.props
+      dispatcher
+        .createFolder(name, parentId ?? null)
+        .then(folder =>
+          repositoriesToMove !== undefined && repositoriesToMove.length > 0
+            ? dispatcher.setRepositoriesFolder(repositoriesToMove, folder.id)
+            : undefined
+        )
+        .catch(e => dispatcher.postError(e))
     }
     this.props.onDismissed()
   }

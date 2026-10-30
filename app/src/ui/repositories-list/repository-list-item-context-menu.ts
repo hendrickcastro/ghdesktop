@@ -118,8 +118,8 @@ const buildFavoriteMenuItem = (
  */
 function buildFolderTree(
   folders: ReadonlyArray<IRepositoryFolder>,
-  repository: Repository,
-  config: IRepositoryListItemContextMenuConfig,
+  repositories: ReadonlyArray<Repository>,
+  onMove: (folderId: number | null) => void,
   parentId: number | null
 ): IMenuItem[] {
   const children = folders.filter(f => f.parentId === parentId)
@@ -128,21 +128,21 @@ function buildFolderTree(
   for (const folder of children) {
     const subChildren = folders.filter(f => f.parentId === folder.id)
 
+    // Checked when every repository is already there; choosing it again takes
+    // them out of the folder.
+    const checked = repositories.every(r => r.folderId === folder.id)
+    const moveHere = {
+      type: 'checkbox' as const,
+      checked,
+      action: () => onMove(checked ? null : folder.id),
+    }
+
     if (subChildren.length > 0) {
       // Folder has subfolders — render as submenu
       const submenuItems: IMenuItem[] = [
-        {
-          label: __DARWIN__ ? 'Move Here' : 'Move here',
-          type: 'checkbox' as const,
-          checked: repository.folderId === folder.id,
-          action: () =>
-            config.onMoveToFolder(
-              repository,
-              repository.folderId === folder.id ? null : folder.id
-            ),
-        },
+        { label: __DARWIN__ ? 'Move Here' : 'Move here', ...moveHere },
         { type: 'separator' },
-        ...buildFolderTree(folders, repository, config, folder.id),
+        ...buildFolderTree(folders, repositories, onMove, folder.id),
       ]
       items.push({
         label: folder.name,
@@ -150,20 +150,43 @@ function buildFolderTree(
       })
     } else {
       // Leaf folder — simple checkbox item
-      items.push({
-        label: folder.name,
-        type: 'checkbox' as const,
-        checked: repository.folderId === folder.id,
-        action: () =>
-          config.onMoveToFolder(
-            repository,
-            repository.folderId === folder.id ? null : folder.id
-          ),
-      })
+      items.push({ label: folder.name, ...moveHere })
     }
   }
 
   return items
+}
+
+/**
+ * The folder submenu for one or more repositories: every folder to move them
+ * to, a new folder, and taking them out of their folder when any is in one.
+ */
+export function buildRepositoriesFolderMenu(
+  folders: ReadonlyArray<IRepositoryFolder>,
+  repositories: ReadonlyArray<Repository>,
+  onMove: (folderId: number | null) => void,
+  onCreateFolder: () => void
+): IMenuItem[] {
+  const submenu = buildFolderTree(folders, repositories, onMove, null)
+
+  if (submenu.length > 0) {
+    submenu.push({ type: 'separator' })
+  }
+
+  submenu.push({
+    label: __DARWIN__ ? 'New Folder…' : 'New folder…',
+    action: onCreateFolder,
+  })
+
+  if (repositories.some(r => r.folderId !== null)) {
+    submenu.push({ type: 'separator' })
+    submenu.push({
+      label: __DARWIN__ ? 'Remove from Folder' : 'Remove from folder',
+      action: () => onMove(null),
+    })
+  }
+
+  return submenu
 }
 
 const buildFolderMenuItems = (
@@ -175,34 +198,15 @@ const buildFolderMenuItems = (
     return []
   }
 
-  const submenu: IMenuItem[] = buildFolderTree(
-    config.folders,
-    repository,
-    config,
-    null
-  )
-
-  if (submenu.length > 0) {
-    submenu.push({ type: 'separator' })
-  }
-
-  submenu.push({
-    label: __DARWIN__ ? 'New Folder…' : 'New folder…',
-    action: () => config.onCreateFolder(null),
-  })
-
-  if (repository.folderId !== null) {
-    submenu.push({ type: 'separator' })
-    submenu.push({
-      label: __DARWIN__ ? 'Remove from Folder' : 'Remove from folder',
-      action: () => config.onMoveToFolder(repository, null),
-    })
-  }
-
   return [
     {
       label: __DARWIN__ ? 'Move to Folder' : 'Move to folder',
-      submenu,
+      submenu: buildRepositoriesFolderMenu(
+        config.folders,
+        [repository],
+        folderId => config.onMoveToFolder(repository, folderId),
+        () => config.onCreateFolder(null)
+      ),
     },
   ]
 }

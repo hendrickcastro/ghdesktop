@@ -5159,6 +5159,17 @@ export class AppStore extends TypedBaseStore<IAppState> {
   }
 
   /** This shouldn't be called directly. See `Dispatcher`. */
+  public async _setRepositoriesFolder(
+    repositories: ReadonlyArray<Repository>,
+    folderId: number | null
+  ): Promise<void> {
+    return this.repositoriesStore.updateRepositoriesFolder(
+      repositories,
+      folderId
+    )
+  }
+
+  /** This shouldn't be called directly. See `Dispatcher`. */
   public async _createFolder(
     name: string,
     parentId: number | null = null

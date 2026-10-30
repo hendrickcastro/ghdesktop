@@ -212,4 +212,29 @@ describe('RepositoriesStore', () => {
       assert.equal(reloaded.mainWorktreePath, undefined)
     })
   })
+
+  describe('moving several repositories to a folder', () => {
+    it('moves them all and then out again', async () => {
+      const a = await repositoriesStore.addRepository('/a', '/a/.git')
+      const b = await repositoriesStore.addRepository('/b', '/b/.git')
+      const c = await repositoriesStore.addRepository('/c', '/c/.git')
+      const folder = await repositoriesStore.createFolder('Work')
+
+      await repositoriesStore.updateRepositoriesFolder([a, b], folder.id)
+
+      const folderOf = async () =>
+        new Map(
+          (await repositoriesStore.getAll()).map(r => [r.path, r.folderId])
+        )
+
+      assert.deepEqual([...(await folderOf()).entries()].sort(), [
+        ['/a', folder.id],
+        ['/b', folder.id],
+        ['/c', null],
+      ])
+
+      await repositoriesStore.updateRepositoriesFolder([a, b, c], null)
+      assert.deepEqual([...(await folderOf()).values()], [null, null, null])
+    })
+  })
 })

@@ -360,7 +360,12 @@ export type PopupDetail =
     }
   | { type: PopupType.MoveToApplicationsFolder }
   | { type: PopupType.ChangeRepositoryAlias; repository: Repository }
-  | { type: PopupType.CreateRepositoryFolder; parentId?: number | null }
+  | {
+      type: PopupType.CreateRepositoryFolder
+      parentId?: number | null
+      /** Repositories to move into the folder once it's created. */
+      repositoriesToMove?: ReadonlyArray<Repository>
+    }
   | {
       type: PopupType.RenameRepositoryFolder
       folderId: number

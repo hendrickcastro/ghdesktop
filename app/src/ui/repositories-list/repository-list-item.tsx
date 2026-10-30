@@ -48,6 +48,9 @@ interface IRepositoryListItemProps {
 
   /** Called to show or hide the linked worktrees underneath this repository. */
   readonly onToggleWorktrees?: (repository: Repositoryish) => void
+
+  /** Whether this repository is part of a ctrl/shift-click multi-selection. */
+  readonly isMultiSelected?: boolean
 }
 
 /**
@@ -107,7 +110,9 @@ export class RepositoryListItem extends React.Component<
 
     return (
       <div
-        className="repository-list-item"
+        className={classNames('repository-list-item', {
+          'multi-selected': this.props.isMultiSelected === true,
+        })}
         ref={this.listItemRef}
         style={depthStyle}
       >
@@ -234,6 +239,7 @@ export class RepositoryListItem extends React.Component<
         nextProps.worktreeTitle !== this.props.worktreeTitle ||
         nextProps.worktreeCount !== this.props.worktreeCount ||
         nextProps.worktreesExpanded !== this.props.worktreesExpanded ||
+        nextProps.isMultiSelected !== this.props.isMultiSelected ||
         nextProps.folderDepth !== this.props.folderDepth
       )
     } else {

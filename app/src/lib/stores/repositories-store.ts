@@ -800,6 +800,22 @@ export class RepositoriesStore extends TypedBaseStore<
     this.emitUpdatedRepositories()
   }
 
+  /**
+   * Move several repositories into a folder (or out of any, with null) in one
+   * transaction, so the list reloads once rather than once per repository.
+   */
+  public async updateRepositoriesFolder(
+    repositories: ReadonlyArray<Repository>,
+    folderId: number | null
+  ): Promise<void> {
+    await this.db.transaction('rw', this.db.repositories, () =>
+      Promise.all(
+        repositories.map(r => this.db.repositories.update(r.id, { folderId }))
+      )
+    )
+    this.emitUpdatedRepositories()
+  }
+
   /** Get all repository folders. */
   public async getAllFolders(): Promise<ReadonlyArray<IRepositoryFolder>> {
     const dbFolders = await this.db.repositoryFolders.toArray()

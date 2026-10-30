@@ -2430,6 +2430,7 @@ export class App extends React.Component<IAppProps, IAppState> {
             dispatcher={this.props.dispatcher}
             onDismissed={onPopupDismissedFn}
             parentId={popup.parentId}
+            repositoriesToMove={popup.repositoriesToMove}
           />
         )
       }

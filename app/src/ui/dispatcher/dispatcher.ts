@@ -911,6 +911,14 @@ export class Dispatcher {
     return this.appStore._setRepositoryFolder(repository, folderId)
   }
 
+  /** Move several repositories into a folder, or out of any with null. */
+  public setRepositoriesFolder(
+    repositories: ReadonlyArray<Repository>,
+    folderId: number | null
+  ): Promise<void> {
+    return this.appStore._setRepositoriesFolder(repositories, folderId)
+  }
+
   /** Create a new repository folder. */
   public createFolder(
     name: string,

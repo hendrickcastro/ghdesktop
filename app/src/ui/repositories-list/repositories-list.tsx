@@ -22,7 +22,17 @@ import { encodePathAsUrl } from '../../lib/path'
 import { TooltippedContent } from '../lib/tooltipped-content'
 import memoizeOne from 'memoize-one'
 import { KeyboardShortcut } from '../keyboard-shortcut/keyboard-shortcut'
-import { generateRepositoryListContextMenu } from '../repositories-list/repository-list-item-context-menu'
+import {
+  buildRepositoriesFolderMenu,
+  generateRepositoryListContextMenu,
+} from '../repositories-list/repository-list-item-context-menu'
+import {
+  getListedRepositoryIds,
+  getRange,
+  isMultiSelectable,
+  toggleInSelection,
+} from './multi-selection'
+import { ClickSource } from '../lib/list/section-list'
 import { enableWorktreeSupport } from '../../lib/feature-flag'
 import { SectionFilterList } from '../lib/section-filter-list'
 import { assertNever } from '../../lib/fatal-error'
@@ -91,6 +101,13 @@ interface IRepositoriesListState {
    * list always opens with worktrees collapsed.
    */
   readonly expandedWorktreeParents: ReadonlySet<number>
+  /**
+   * The repositories picked with ctrl/cmd- or shift-click, to act on together
+   * (moving them to a folder). Separate from the opened repository.
+   */
+  readonly multiSelection: ReadonlySet<number>
+  /** The repository a shift-click range starts from. */
+  readonly multiSelectionAnchor: number | null
 }
 
 const RowHeight = 29
@@ -190,6 +207,8 @@ export class RepositoriesList extends React.Component<
       selectedItem: null,
       collapsedGroups: new Set<string>(getStringArray(collapsedGroupsKey)),
       expandedWorktreeParents: new Set<number>(),
+      multiSelection: new Set<number>(),
+      multiSelectionAnchor: null,
     }
   }
 
@@ -248,7 +267,127 @@ export class RepositoriesList extends React.Component<
           repository.id
         )}
         onToggleWorktrees={this.onToggleWorktrees}
+        isMultiSelected={this.state.multiSelection.has(repository.id)}
       />
+    )
+  }
+
+  /** The multi-selected repositories, in no particular order. */
+  private getMultiSelectedRepositories(): ReadonlyArray<Repository> {
+    const { multiSelection } = this.state
+    return this.props.repositories.filter(
+      (r): r is Repository =>
+        r instanceof Repository && multiSelection.has(r.id)
+    )
+  }
+
+  private clearMultiSelection = () =>
+    this.setState({ multiSelection: new Set(), multiSelectionAnchor: null })
+
+  /**
+   * Ctrl/cmd-click adds or removes a repository, shift-click selects the range
+   * from the last one picked; neither opens the repository. Returns whether
+   * the click was one of those.
+   */
+  private handleMultiSelectClick(
+    item: IRepositoryListItem,
+    source: ClickSource
+  ): boolean {
+    if (source.kind !== 'mouseclick') {
+      return false
+    }
+
+    const { ctrlKey, metaKey, shiftKey } = source.event
+    const toggle = __DARWIN__ ? metaKey : ctrlKey
+
+    if ((!toggle && !shiftKey) || !isMultiSelectable(item)) {
+      return false
+    }
+
+    const { id } = item.repository
+    const { multiSelection, multiSelectionAnchor } = this.state
+
+    if (shiftKey && multiSelectionAnchor !== null) {
+      const listedIds = getListedRepositoryIds(
+        this.getGroups(),
+        this.isGroupCollapsed,
+        this.props.filterText
+      )
+      this.setState({
+        multiSelection: getRange(listedIds, multiSelectionAnchor, id),
+      })
+    } else {
+      this.setState({
+        multiSelection: toggleInSelection(multiSelection, id),
+        multiSelectionAnchor: id,
+      })
+    }
+
+    return true
+  }
+
+  private onMoveMultiSelectionToFolder = (folderId: number | null) => {
+    const repositories = this.getMultiSelectedRepositories()
+    this.props.dispatcher
+      .setRepositoriesFolder(repositories, folderId)
+      .then(this.clearMultiSelection)
+      .catch(e => this.props.dispatcher.postError(e))
+  }
+
+  private onCreateFolderForMultiSelection = () => {
+    this.props.dispatcher.showPopup({
+      type: PopupType.CreateRepositoryFolder,
+      parentId: null,
+      repositoriesToMove: this.getMultiSelectedRepositories(),
+    })
+    this.clearMultiSelection()
+  }
+
+  private getMultiSelectionFolderMenu(): ReadonlyArray<IMenuItem> {
+    return buildRepositoriesFolderMenu(
+      this.props.repositoryFolders,
+      this.getMultiSelectedRepositories(),
+      this.onMoveMultiSelectionToFolder,
+      this.onCreateFolderForMultiSelection
+    )
+  }
+
+  private onMultiSelectionMoveButtonClick = () =>
+    showContextualMenu([...this.getMultiSelectionFolderMenu()])
+
+  /** Escape clears a multi-selection before it closes the list. */
+  private onListKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === 'Escape' && this.state.multiSelection.size > 0) {
+      event.preventDefault()
+      event.stopPropagation()
+      this.clearMultiSelection()
+    }
+  }
+
+  private renderMultiSelectionBar() {
+    const count = this.getMultiSelectedRepositories().length
+    if (count === 0) {
+      return null
+    }
+
+    return (
+      <div className="multi-selection-bar">
+        <span className="multi-selection-count">
+          {count} {count === 1 ? 'repository' : 'repositories'} selected
+        </span>
+        <Button onClick={this.onMultiSelectionMoveButtonClick}>
+          {__DARWIN__ ? 'Move to Folder' : 'Move to folder'}
+          <Octicon symbol={octicons.triangleDown} />
+        </Button>
+        <Button
+          className="multi-selection-clear"
+          onClick={this.clearMultiSelection}
+          ariaLabel="Clear selection"
+          tooltip="Clear selection (Esc)"
+        >
+          <Octicon symbol={octicons.x} />
+        </Button>
+      </div>
     )
   }
 
@@ -605,7 +744,15 @@ export class RepositoriesList extends React.Component<
     )
   }
 
-  private onItemClick = (item: IRepositoryListItem) => {
+  private onItemClick = (item: IRepositoryListItem, source: ClickSource) => {
+    if (this.handleMultiSelectClick(item, source)) {
+      return
+    }
+
+    if (this.state.multiSelection.size > 0) {
+      this.clearMultiSelection()
+    }
+
     const hasIndicator =
       item.changedFilesCount > 0 ||
       (item.aheadBehind !== null
@@ -620,6 +767,28 @@ export class RepositoriesList extends React.Component<
     event: React.MouseEvent<HTMLDivElement>
   ) => {
     event.preventDefault()
+
+    // Right-clicking one of several selected repositories acts on all of them.
+    const selected = this.getMultiSelectedRepositories()
+    if (
+      selected.length > 1 &&
+      this.state.multiSelection.has(item.repository.id)
+    ) {
+      showContextualMenu([
+        {
+          label: __DARWIN__
+            ? `Move ${selected.length} Repositories to Folder`
+            : `Move ${selected.length} repositories to folder`,
+          submenu: this.getMultiSelectionFolderMenu(),
+        },
+        { type: 'separator' },
+        {
+          label: __DARWIN__ ? 'Clear Selection' : 'Clear selection',
+          action: this.clearMultiSelection,
+        },
+      ])
+      return
+    }
 
     const items = generateRepositoryListContextMenu({
       onRemoveRepository: this.props.onRemoveRepository,
@@ -659,8 +828,9 @@ export class RepositoriesList extends React.Component<
     (group: number) =>
       this.getGroupLabel(groups[group].identifier)
 
-  public render() {
-    const groups = this.getVisibleGroups(
+  /** The groups as the list shows them. */
+  private getGroups() {
+    return this.getVisibleGroups(
       this.getRepositoryGroups(
         this.props.repositories,
         this.props.localRepositoryStateLookup,
@@ -670,6 +840,10 @@ export class RepositoriesList extends React.Component<
       this.props.selectedRepository?.id ?? null,
       this.props.filterText.trim() !== ''
     )
+  }
+
+  public render() {
+    const groups = this.getGroups()
 
     // So there's two types of selection at play here. There's the repository
     // selection for the whole app and then there's the keyboard selection in
@@ -681,7 +855,8 @@ export class RepositoriesList extends React.Component<
       this.getSelectedListItem(groups, this.props.selectedRepository)
 
     return (
-      <div className="repository-list">
+      // eslint-disable-next-line jsx-a11y/no-static-element-interactions
+      <div className="repository-list" onKeyDown={this.onListKeyDown}>
         <SectionFilterList<IRepositoryListItem, RepositoryListGroup>
           rowHeight={RowHeight}
           selectedItem={selectedItem}
@@ -701,12 +876,14 @@ export class RepositoriesList extends React.Component<
             filterText: this.props.filterText,
             collapsedGroups: this.state.collapsedGroups,
             expandedWorktreeParents: this.state.expandedWorktreeParents,
+            multiSelection: this.state.multiSelection,
           }}
           onItemContextMenu={this.onItemContextMenu}
           getGroupAriaLabel={this.getGroupAriaLabelGetter(groups)}
           getItemAriaLabel={this.getItemAriaLabel}
           onSelectionChanged={this.onSelectionChanged}
         />
+        {this.renderMultiSelectionBar()}
       </div>
     )
   }

@@ -23,7 +23,42 @@
 .repository-list {
   height: 100%;
   display: flex;
-  flex-direction: row;
+  // A column so the multi-selection bar sits under the list
+  flex-direction: column;
+
+  > .filter-list {
+    min-height: 0;
+  }
+
+  // Repositories picked with ctrl/cmd- or shift-click
+  .repository-list-item.multi-selected {
+    background-color: color-mix(in srgb, var(--box-selected-active-background-color) 22%, transparent);
+    box-shadow: inset 3px 0 0 var(--box-selected-active-background-color);
+  }
+
+  .multi-selection-bar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-half);
+    padding: var(--spacing-half) var(--spacing);
+    border-top: var(--base-border);
+
+    .multi-selection-count {
+      flex: 1;
+      min-width: 0;
+      @include ellipsis;
+      font-weight: var(--font-weight-semibold);
+    }
+
+    .button-component .octicon {
+      vertical-align: middle;
+    }
+
+    .multi-selection-clear {
+      padding: 0 var(--spacing-half);
+    }
+  }
 
   /**
    * Inherit the min-width from the ToolbarDropdown so that the repositories
