@@ -445,9 +445,13 @@ import {
   findPullRequestsByNumbers,
 } from '../pull-request-refs'
 import { resolveWithin } from '../path'
-import { WorktreeEntry } from '../../models/worktree'
+import {
+  IDeferredCheckout,
+  IDeleteWorktreeOptions,
+  WorktreeEntry,
+} from '../../models/worktree'
 import { shouldShowWorktreeDropdown } from '../worktree-dropdown'
-import type { Model } from '@github/copilot-sdk/dist/generated/rpc'
+import type { Model } from '../copilot/types'
 
 const LastSelectedRepositoryIDKey = 'last-selected-repository-id'
 
@@ -1019,12 +1023,17 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
     this.cloningRepositoriesStore.onDidError(e => this.emitError(e))
 
-    this.signInStore.onDidAuthenticate(account => this._addAccount(account))
+    this.signInStore.onDidAuthenticate(account =>
+      this.onDidAuthenticate(account)
+    )
     this.signInStore.onDidUpdate(() => this.emitUpdate())
     this.signInStore.onDidError(error => this.emitError(error))
 
     this.accountsStore.onDidUpdate(accounts => {
       this.accounts = accounts
+      this.statsStore.setUsesShortLivedToken(
+        accounts.some(account => this.accountsStore.isRefreshable(account))
+      )
       this.syncCopilotModelsFromCache()
       this.syncCopilotQuotaSnapshotsFromCache()
       this.updateCopilotModelsForCurrentAccount()
@@ -1040,6 +1049,11 @@ export class AppStore extends TypedBaseStore<IAppState> {
       this.emitUpdate()
     })
     this.accountsStore.onDidError(error => this.emitError(error))
+    this.accountsStore.onTokenRefreshEvent(event => {
+      void this.statsStore.recordTokenRefreshEvent(event).catch(error => {
+        log.error('Failed recording token refresh stats', error)
+      })
+    })
     this.accountsStore.onTokenInvalidated(account => {
       this._showPopup({ type: PopupType.InvalidatedToken, account })
     })
@@ -2428,6 +2442,9 @@ export class AppStore extends TypedBaseStore<IAppState> {
     this.accounts = accounts
     this.repositories = repositories
     this.repositoryFolders = await this.repositoriesStore.getAllFolders()
+    this.statsStore.setUsesShortLivedToken(
+      accounts.some(account => this.accountsStore.isRefreshable(account))
+    )
     this.alwaysShowWorktreeList = getBoolean(alwaysShowWorktreeListKey, false)
 
     this.updateRepositorySelectionAfterRepositoriesChanged()
@@ -2971,8 +2988,10 @@ export class AppStore extends TypedBaseStore<IAppState> {
   ): Promise<IStatusResult | null> {
     const gitStore = this.gitStoreCache.get(repository)
     const status = await gitStore.loadStatus()
+    this.updateSidebarIndicator(repository, status)
 
     if (status === null) {
+      this.emitUpdate()
       return null
     }
 
@@ -4130,7 +4149,6 @@ export class AppStore extends TypedBaseStore<IAppState> {
     // is in a bad state - let's mark it as missing here and give up on the
     // further work
     const status = await this._loadStatus(repository)
-    this.updateSidebarIndicator(repository, status)
 
     if (status === null) {
       await this._updateRepositoryMissing(repository, true)
@@ -4204,10 +4222,10 @@ export class AppStore extends TypedBaseStore<IAppState> {
   /**
    * Update the repository sidebar indicator for the repository
    */
-  private async updateSidebarIndicator(
+  private updateSidebarIndicator(
     repository: Repository,
     status: IStatusResult | null
-  ): Promise<void> {
+  ): void {
     const lookup = this.localRepositoryStateLookup
 
     if (repository.missing) {
@@ -4674,13 +4692,34 @@ export class AppStore extends TypedBaseStore<IAppState> {
     // out unless told to. Ask the user rather than moving to that worktree:
     // picking a branch never changes the selected repository. Asked last, so
     // confirming doesn't bring the local changes prompts back.
-    const worktree = repositoryState.worktrees.find(
-      wt =>
-        wt.branch === branch.ref &&
-        matchExistingRepository([repository], wt.path) === undefined
-    )
+    const findOtherWorktree = () =>
+      this.repositoryStateCache
+        .get(repository)
+        .worktrees.find(
+          wt =>
+            wt.branch === branch.ref &&
+            matchExistingRepository([repository], wt.path) === undefined
+        )
 
-    if (worktree !== undefined && !ignoreOtherWorktrees) {
+    let worktree = ignoreOtherWorktrees ? undefined : findOtherWorktree()
+
+    if (worktree !== undefined) {
+      // Git still counts a worktree whose folder is gone as holding its
+      // branch. Refresh to know whether it's missing, and if so offer to
+      // remove it and then check out, rather than checking out over it.
+      await this._refreshWorktrees(repository)
+      worktree = findOtherWorktree()
+
+      if (worktree?.isPrunable) {
+        this._requestDeleteWorktree(repository, worktree.path, {
+          branch,
+          strategy,
+        })
+        return repository
+      }
+    }
+
+    if (worktree !== undefined) {
       this._showPopup({
         type: PopupType.ConfirmCheckoutBranchInWorktree,
         repository,
@@ -6338,16 +6377,23 @@ export class AppStore extends TypedBaseStore<IAppState> {
   /** This shouldn't be called directly. See 'Dispatcher'. */
   public _requestDeleteWorktree(
     repository: Repository,
-    worktreePath: string
+    worktreePath: string,
+    checkout?: IDeferredCheckout
   ): void {
-    if (this.confirmWorktreeRemoval) {
+    const wt = this.repositoryStateCache
+      .get(repository)
+      .worktrees.find(wt => wt.path === worktreePath)
+    const options = { isMissing: wt?.isPrunable === true, checkout }
+
+    if (this.confirmWorktreeRemoval || options.isMissing) {
       this._showPopup({
         type: PopupType.DeleteWorktree,
         repository,
         worktreePath,
+        options,
       })
     } else {
-      this._deleteWorktree(repository, worktreePath).catch(e =>
+      this._deleteWorktree(repository, worktreePath, options).catch(e =>
         this.emitError(e)
       )
     }
@@ -6357,8 +6403,27 @@ export class AppStore extends TypedBaseStore<IAppState> {
   public async _deleteWorktree(
     repository: Repository,
     worktreePath: string,
-    force?: boolean
+    options: IDeleteWorktreeOptions = {}
   ): Promise<void> {
+    if (options.isMissing === true) {
+      const worktrees = await listWorktrees(repository)
+
+      if (!worktrees.some(wt => wt.path === worktreePath && wt.isPrunable)) {
+        await this._refreshWorktrees(repository)
+
+        if (options.checkout === undefined) {
+          const name = Path.basename(worktreePath)
+          this.emitError(
+            new Error(
+              `The worktree ${name} is available again and was left in place.`
+            )
+          )
+        }
+
+        return this.checkoutAfterRemoval(repository, options)
+      }
+    }
+
     const isDeletingCurrentWorktree =
       matchExistingRepository([repository], worktreePath) !== undefined
     let originalWorktree: WorktreeEntry | null = null
@@ -6386,7 +6451,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
     }
 
     try {
-      await removeWorktree(repository.path, worktreePath, force)
+      await removeWorktree(repository.path, worktreePath, options.force)
     } catch (e) {
       this._closePopup(PopupType.DeleteWorktree)
       this._closePopup(PopupType.DeleteWorktreeFailed)
@@ -6396,6 +6461,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
         worktreePath,
         error: e,
         originalWorktree,
+        options,
       })
       return
     }
@@ -6415,6 +6481,20 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
     await this._refreshWorktrees(repository)
     this.statsStore.increment('worktreeDeletedCount')
+    this.checkoutAfterRemoval(repository, options)
+  }
+
+  private checkoutAfterRemoval(
+    repository: Repository,
+    { checkout }: IDeleteWorktreeOptions
+  ) {
+    if (checkout !== undefined) {
+      this._checkoutBranch(
+        repository,
+        checkout.branch,
+        checkout.strategy
+      ).catch(e => this.emitError(e))
+    }
   }
 
   /** This shouldn't be called directly. See 'Dispatcher'. */
@@ -8359,22 +8439,20 @@ export class AppStore extends TypedBaseStore<IAppState> {
     log.info(
       `[AppStore] removing account ${account.login} (${account.name}) from store`
     )
-    await this.accountsStore.removeAccount(account)
-    await deleteToken(account)
+    const current = await this.accountsStore.removeAccount(account)
+    if (current?.token) {
+      await deleteToken(current)
+    }
   }
 
-  private async _addAccount(account: Account): Promise<void> {
-    log.info(
-      `[AppStore] adding account ${account.login} (${account.name}) to store`
-    )
-    const storedAccount = await this.accountsStore.addAccount(account)
-
+  private onDidAuthenticate(account: Account): void {
+    log.info(`[AppStore] signed in as ${account.login} (${account.name})`)
     // If we're in the welcome flow and a user signs in we want to trigger
     // a refresh of the repositories available for cloning straight away
     // in order to have the list of repositories ready for them when they
     // get to the blankslate.
-    if (this.showWelcomeFlow && storedAccount !== null) {
-      this.apiRepositoriesStore.loadRepositories(storedAccount)
+    if (this.showWelcomeFlow) {
+      this.apiRepositoriesStore.loadRepositories(account)
     }
   }
 
@@ -8681,7 +8759,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
   private async isUsingLFS(repository: Repository): Promise<boolean> {
     try {
       return await isUsingLFS(repository)
-    } catch (error) {
+    } catch {
       return false
     }
   }
@@ -9281,6 +9359,19 @@ export class AppStore extends TypedBaseStore<IAppState> {
     }
 
     await this.currentBranchPruner.testPrune()
+  }
+
+  /** This shouldn't be called directly. See 'Dispatcher'. */
+  public _getAccountTokenExpirationForTesting(account: Account) {
+    return this.accountsStore.getTokenExpirationForTesting(account)
+  }
+
+  /** This shouldn't be called directly. See 'Dispatcher'. */
+  public _setAccountTokenExpirationForTesting(
+    account: Account,
+    expiresAt: number | undefined
+  ) {
+    return this.accountsStore.setTokenExpirationForTesting(account, expiresAt)
   }
 
   public async _showCreateForkDialog(

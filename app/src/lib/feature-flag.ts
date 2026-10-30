@@ -4,6 +4,12 @@ import { isCustomAIEnabled } from './ai/ai-config'
 const Disable = false
 
 /**
+ * Opt in new OAuth authorizations for beta and development features.
+ * Other builds use Central's rollout; existing credentials keep renewing.
+ */
+export const enableShortLivedTokens = () => enableBetaFeatures()
+
+/**
  * Enables the application to opt-in for preview features based on runtime
  * checks. This is backed by the GITHUB_DESKTOP_PREVIEW_FEATURES environment
  * variable, which is checked for non-development environments.
@@ -130,5 +136,5 @@ export const enableCopilotAppHandoff = () =>
 
 /** Should stats be sent to the new telemetry endpoint? */
 export function enableNewStatsEndpoint(): boolean {
-  return enableBetaFeatures()
+  return true
 }

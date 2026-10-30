@@ -31,9 +31,9 @@ interface IDesktopPackagerModule {
 }
 
 interface IOSXNotarizeOptions {
-  readonly appleId: string
-  readonly appleIdPassword: string
-  readonly teamId: string
+  readonly appleApiKey: string
+  readonly appleApiKeyId: string
+  readonly appleApiIssuer: string
 }
 
 import {
@@ -198,7 +198,7 @@ async function packageApp() {
     // configured and notarization is what's missing, which is a real mistake.
     if (process.env.APPLE_APPLICATION_CERT) {
       throw new Error(
-        'Unable to retreive appleId and/or appleIdPassword to notarize macOS build'
+        'Unable to retrieve appleApiKey, appleApiKeyId, and/or appleApiIssuer to notarize macOS build'
       )
     }
 
@@ -445,7 +445,7 @@ function copyDependencies() {
   })
 
   console.log('  Copying desktop credential helper…')
-  const mingw = getDistArchitecture() === 'x64' ? 'mingw64' : 'clangarm64'
+  const mingw = getDistArchitecture() === 'x64' ? 'ucrt64' : 'clangarm64'
   const gitCoreDir =
     process.platform === 'win32'
       ? path.resolve(outRoot, 'git', mingw, 'libexec', 'git-core')
@@ -557,12 +557,12 @@ ${licenseText}`
 
 function getNotarizationOptions(): IOSXNotarizeOptions | undefined {
   const {
-    APPLE_ID: appleId,
-    APPLE_ID_PASSWORD: appleIdPassword,
-    APPLE_TEAM_ID: teamId,
+    APPLE_API_KEY_PATH: appleApiKey,
+    APPLE_API_KEY_ID: appleApiKeyId,
+    APPLE_API_ISSUER: appleApiIssuer,
   } = process.env
 
-  return appleId && appleIdPassword && teamId
-    ? { appleId, appleIdPassword, teamId }
+  return appleApiKey && appleApiKeyId && appleApiIssuer
+    ? { appleApiKey, appleApiKeyId, appleApiIssuer }
     : undefined
 }
